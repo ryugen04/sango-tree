@@ -1,0 +1,45 @@
+name: test-app
+version: "1.0"
+
+services:
+  postgres:
+    type: docker
+    image: postgres:16
+    port: 5432
+    shared: true
+    env:
+      POSTGRES_PASSWORD: dev
+
+  api:
+    type: process
+    port: 8080
+    depends_on: [postgres]
+    command: go run ./cmd/server
+    command_args:
+      - --port=${port}
+      - --db-port=${services.postgres.port}
+    env_dynamic:
+      PORT: "${port}"
+      DATABASE_URL: "postgres://localhost:${services.postgres.port}/myapp"
+
+  seed:
+    type: script
+    command: go run ./cmd/seed
+    depends_on: [api]
+    run_on: [setup]
+
+ports:
+  strategy: fixed
+  range: [3000, 9999]
+
+profiles:
+  backend:
+    services: [postgres, api]
+
+doctor:
+  checks:
+    - name: Go
+      command: go version
+      expect: "go1"
+    - name: Docker
+      command: docker info

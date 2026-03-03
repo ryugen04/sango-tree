@@ -1,0 +1,7 @@
+name: minimal
+version: "1.0"
+services:
+  app:
+    type: process
+    port: 3000
+    command: npm start

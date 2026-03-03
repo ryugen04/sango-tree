@@ -1,0 +1,6 @@
+name: invalid
+version: "1.0"
+services:
+  api:
+    type: invalid_type
+    command: echo hello
