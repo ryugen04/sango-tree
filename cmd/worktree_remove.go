@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/ryugen04/grove/internal/process"
@@ -69,7 +70,11 @@ var worktreeRemoveCmd = &cobra.Command{
 		// pre_removeフック実行
 		for _, hook := range cfg.Worktree.Hooks.PreRemove {
 			fmt.Printf("[grove] pre_removeフック実行: %s\n", hook.Command)
-			// フック実行はベストエフォート
+			c := exec.Command("sh", "-c", hook.Command)
+			c.Dir = branch
+			if out, err := c.CombinedOutput(); err != nil {
+				fmt.Printf("[grove] pre_removeフック警告: %v\n%s", err, out)
+			}
 		}
 
 		// git worktree remove

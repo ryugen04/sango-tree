@@ -51,7 +51,10 @@ var cloneCmd = &cobra.Command{
 				defaultBranch = "main"
 			}
 
-			wtPath := filepath.Join("main", name)
+			wtPath, err := filepath.Abs(filepath.Join("main", name))
+			if err != nil {
+				return fmt.Errorf("ワークツリーパスの解決に失敗: %w", err)
+			}
 			fmt.Printf("[grove] %s のワークツリーを作成中... (branch: %s)\n", name, defaultBranch)
 			if err := worktree.WorktreeAdd(groveDir, name, wtPath, defaultBranch); err != nil {
 				return fmt.Errorf("サービス %s のワークツリー作成に失敗: %w", name, err)

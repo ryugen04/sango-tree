@@ -78,43 +78,59 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 		}
 	}
 
-	// 作成済みworktreeを追跡（ロールバック用）
-	var createdPaths []string
-	var createdServiceNames []string
+	// ロールバック用: worktreeパスとサービス名のペアを追跡
+	type createdEntry struct {
+		path        string
+		serviceName string
+	}
+	var created []createdEntry
+	var allServiceNames []string
 
 	// 各サービスについてworktree作成
 	for _, name := range targetServices {
-		svc := cfg.Services[name]
+		svc, ok := cfg.Services[name]
+		if !ok {
+			return fmt.Errorf("サービス %q は設定に存在しません", name)
+		}
+
 		if svc.Type == "docker" || svc.Repo == "" {
-			createdServiceNames = append(createdServiceNames, name)
+			allServiceNames = append(allServiceNames, name)
 			continue
 		}
 
-		wtPath := filepath.Join(branch, name)
+		absWtPath, err := filepath.Abs(filepath.Join(branch, name))
+		if err != nil {
+			return fmt.Errorf("ワークツリーパスの解決に失敗: %w", err)
+		}
 		fmt.Printf("[grove] %s のワークツリーを作成中... (branch: %s from %s)\n", name, branch, baseBranch)
 
-		if err := worktree.WorktreeAddNewBranch(groveDir, name, wtPath, branch, baseBranch); err != nil {
-			// ロールバック
-			rollbackWorktrees(groveDir, cfg, createdPaths, createdServiceNames, branch)
+		if err := worktree.WorktreeAddNewBranch(groveDir, name, absWtPath, branch, baseBranch); err != nil {
+			// ロールバック: 作成済みworktreeのみ削除
+			for _, e := range created {
+				fmt.Printf("[grove] ロールバック: %s を削除中...\n", e.serviceName)
+				if err := worktree.WorktreeRemove(groveDir, e.serviceName, e.path, true); err != nil {
+					fmt.Printf("[grove] ロールバック警告: %s の削除に失敗: %v\n", e.serviceName, err)
+				}
+			}
 			return fmt.Errorf("サービス %s のワークツリー作成に失敗: %w", name, err)
 		}
 
-		createdPaths = append(createdPaths, wtPath)
-		createdServiceNames = append(createdServiceNames, name)
+		created = append(created, createdEntry{path: absWtPath, serviceName: name})
+		allServiceNames = append(allServiceNames, name)
 	}
 
 	// include展開
 	if len(cfg.Worktree.Include.Common) > 0 || len(cfg.Worktree.Include.PerService) > 0 {
 		fmt.Println("[grove] includeファイルを展開中...")
 		vars := buildIncludeVars(cfg, offset)
-		if err := worktree.ExpandIncludes(branch, createdServiceNames, cfg.Worktree.Include, vars); err != nil {
+		if err := worktree.ExpandIncludes(branch, allServiceNames, cfg.Worktree.Include, vars); err != nil {
 			fmt.Printf("[grove] include展開で警告: %v\n", err)
 		}
 	}
 
 	// auto_setupの実行
 	if cfg.Worktree.AutoSetup && !wtCreateNoSetup {
-		for _, name := range createdServiceNames {
+		for _, name := range allServiceNames {
 			svc := cfg.Services[name]
 			if len(svc.Setup) > 0 {
 				fmt.Printf("[grove] %s のセットアップを実行中...\n", name)
@@ -133,7 +149,7 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 	ws.AddWorktree(branch, &worktree.WorktreeInfo{
 		Offset:     offset,
 		CreatedAt:  time.Now(),
-		Services:   createdServiceNames,
+		Services:   allServiceNames,
 		FromBranch: baseBranch,
 	})
 
@@ -170,17 +186,3 @@ func buildIncludeVars(cfg *config.Config, offset int) map[string]string {
 	return vars
 }
 
-// rollbackWorktrees は作成済みworktreeをロールバックする
-func rollbackWorktrees(groveDir string, cfg *config.Config, paths, serviceNames []string, branch string) {
-	fmt.Println("[grove] エラー発生。作成済みワークツリーをロールバック中...")
-	for i, wtPath := range paths {
-		name := serviceNames[i]
-		svc := cfg.Services[name]
-		if svc.Type == "docker" || svc.Repo == "" {
-			continue
-		}
-		if err := worktree.WorktreeRemove(groveDir, name, wtPath, true); err != nil {
-			fmt.Printf("[grove] ロールバック警告: %s の削除に失敗: %v\n", name, err)
-		}
-	}
-}

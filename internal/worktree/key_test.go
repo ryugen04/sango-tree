@@ -8,9 +8,10 @@ func TestToKey(t *testing.T) {
 		want   string
 	}{
 		{"main", "main"},
-		{"feature/auth", "feature--auth"},
-		{"feature/auth/login", "feature--auth--login"},
-		{"hotfix/v1.0", "hotfix--v1.0"},
+		{"feature/auth", "feature___auth"},
+		{"feature/auth/login", "feature___auth___login"},
+		{"hotfix/v1.0", "hotfix___v1.0"},
+		{"fix--issue-123", "fix--issue-123"},
 	}
 	for _, tt := range tests {
 		got := ToKey(tt.branch)
@@ -26,8 +27,9 @@ func TestFromKey(t *testing.T) {
 		want string
 	}{
 		{"main", "main"},
-		{"feature--auth", "feature/auth"},
-		{"feature--auth--login", "feature/auth/login"},
+		{"feature___auth", "feature/auth"},
+		{"feature___auth___login", "feature/auth/login"},
+		{"fix--issue-123", "fix--issue-123"},
 	}
 	for _, tt := range tests {
 		got := FromKey(tt.key)
@@ -38,7 +40,7 @@ func TestFromKey(t *testing.T) {
 }
 
 func TestRoundTrip(t *testing.T) {
-	branches := []string{"main", "feature/auth", "release/v2.0/rc1"}
+	branches := []string{"main", "feature/auth", "release/v2.0/rc1", "fix--issue-123"}
 	for _, b := range branches {
 		got := FromKey(ToKey(b))
 		if got != b {

@@ -37,11 +37,6 @@ func ExpandVariablesWithOffset(cfg *Config, offset int) {
 	}
 }
 
-// buildResolver は変数名を値に解決する関数を生成する（オフセット0）
-func buildResolver(cfg *Config, serviceName string) func(string) string {
-	return buildResolverWithOffset(cfg, serviceName, 0)
-}
-
 // buildResolverWithOffset はオフセットを考慮した変数リゾルバを生成する
 func buildResolverWithOffset(cfg *Config, serviceName string, offset int) func(string) string {
 	return func(varName string) string {

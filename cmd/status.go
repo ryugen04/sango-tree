@@ -25,6 +25,16 @@ var statusCmd = &cobra.Command{
 			return err
 		}
 
+		// worktrees.jsonからオフセットを取得
+		ws, err := worktree.Load(groveDir)
+		if err != nil {
+			return fmt.Errorf("worktrees.jsonの読み込みに失敗: %w", err)
+		}
+		offset := 0
+		if wt, ok := ws.Worktrees[wtName]; ok {
+			offset = wt.Offset
+		}
+
 		// スタイル定義
 		green := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 		red := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
@@ -47,10 +57,14 @@ var statusCmd = &cobra.Command{
 			svc := cfg.Services[name]
 			svcType := svc.Type
 
-			// ポート表示
+			// ポート表示（オフセット適用）
 			portStr := "-"
 			if svc.Port > 0 {
-				portStr = strconv.Itoa(svc.Port)
+				resolvedPort := svc.Port
+				if !svc.Shared {
+					resolvedPort += offset
+				}
+				portStr = strconv.Itoa(resolvedPort)
 			}
 
 			// PIDファイルベースの状態判定

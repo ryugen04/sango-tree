@@ -95,7 +95,11 @@ func (s *WorktreeState) RemoveWorktree(name string) {
 }
 
 // AllocateOffset は次のオフセットを割り当てて返す
+// baseOffsetが0以下の場合はデフォルト100を使用する
 func (s *WorktreeState) AllocateOffset(baseOffset int) int {
+	if baseOffset <= 0 {
+		baseOffset = 100
+	}
 	offset := s.NextOffset
 	s.NextOffset += baseOffset
 	return offset
