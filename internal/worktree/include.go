@@ -8,23 +8,46 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ryugen04/grove/internal/config"
+	"github.com/ryugen04/sango-tree/internal/config"
 )
+
+// ExpandResult はinclude展開の結果を保持する
+type ExpandResult struct {
+	Warnings []error // required=false のエントリの失敗
+	Errors   []error // required=true のエントリの失敗
+}
+
+// HasErrors はrequiredエントリの失敗があるかを返す
+func (r *ExpandResult) HasErrors() bool {
+	return len(r.Errors) > 0
+}
+
+// WarningError は警告エラーを結合して返す
+func (r *ExpandResult) WarningError() error {
+	return errors.Join(r.Warnings...)
+}
+
+// CriticalError は必須エントリのエラーを結合して返す
+func (r *ExpandResult) CriticalError() error {
+	return errors.Join(r.Errors...)
+}
 
 // ExpandIncludes はworktree作成時にinclude設定に従ってファイルを配置する
 // worktreeDir: 対象worktreeのルートディレクトリ
 // services: このworktreeに含まれるサービス名リスト
 // include: IncludeConfig
 // vars: template展開用の変数マップ (例: {"port": "3000", "services.api.port": "8080"})
-func ExpandIncludes(worktreeDir string, services []string, include config.IncludeConfig, vars map[string]string) error {
-	var errs []error
+func ExpandIncludes(worktreeDir string, services []string, include config.IncludeConfig, vars map[string]string) *ExpandResult {
+	result := &ExpandResult{}
 
-	// commonエントリを全サービスに配置する
-	for _, svc := range services {
-		targetDir := filepath.Join(worktreeDir, svc)
-		for _, entry := range include.Common {
-			if err := processEntry(worktreeDir, targetDir, entry, vars); err != nil {
-				errs = append(errs, fmt.Errorf("common エントリ (service=%s, source=%s): %w", svc, entry.Source, err))
+	// rootエントリをworktreeルートに配置する
+	for _, entry := range include.Root {
+		if err := processEntry(worktreeDir, worktreeDir, entry, vars); err != nil {
+			wrapped := fmt.Errorf("root エントリ (source=%s): %w", entry.Source, err)
+			if entry.Required {
+				result.Errors = append(result.Errors, wrapped)
+			} else {
+				result.Warnings = append(result.Warnings, wrapped)
 			}
 		}
 	}
@@ -38,12 +61,17 @@ func ExpandIncludes(worktreeDir string, services []string, include config.Includ
 		targetDir := filepath.Join(worktreeDir, svc)
 		for _, entry := range entries {
 			if err := processEntry(worktreeDir, targetDir, entry, vars); err != nil {
-				errs = append(errs, fmt.Errorf("per_service エントリ (service=%s, source=%s): %w", svc, entry.Source, err))
+				wrapped := fmt.Errorf("per_service エントリ (service=%s, source=%s): %w", svc, entry.Source, err)
+				if entry.Required {
+					result.Errors = append(result.Errors, wrapped)
+				} else {
+					result.Warnings = append(result.Warnings, wrapped)
+				}
 			}
 		}
 	}
 
-	return errors.Join(errs...)
+	return result
 }
 
 // processEntry は単一のIncludeEntryを処理する
@@ -57,6 +85,20 @@ func processEntry(baseDir, targetDir string, entry config.IncludeEntry, vars map
 	// ターゲットの親ディレクトリを作成する
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return fmt.Errorf("ターゲットディレクトリの作成に失敗: %w", err)
+	}
+
+	// ソースの情報を取得する
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return err
+	}
+
+	// ディレクトリの場合はsymlinkのみ対応
+	if srcInfo.IsDir() {
+		if entry.Strategy != "symlink" {
+			return fmt.Errorf("ディレクトリは symlink のみ対応: %q", entry.Strategy)
+		}
+		return createSymlink(srcPath, dstPath)
 	}
 
 	switch entry.Strategy {

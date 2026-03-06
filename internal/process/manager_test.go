@@ -97,7 +97,7 @@ func TestBuildDockerArgs(t *testing.T) {
 		"run":                              false,
 		"-d":                               false,
 		"--name":                           false,
-		"grove-postgres":                   false,
+		"sango-postgres":                   false,
 		"-p":                               false,
 		"5432:5432":                        false,
 		"-e":                               false,

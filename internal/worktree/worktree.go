@@ -28,16 +28,16 @@ type SharedService struct {
 	Port int `json:"port"`
 }
 
-// DefaultDir は.groveディレクトリのパスを返す
+// DefaultDir は.sangoディレクトリのパスを返す
 func DefaultDir() string {
-	return ".grove"
+	return ".sango"
 }
 
 const stateFile = "worktrees.json"
 
 // Load はworktrees.jsonを読み込む。ファイルがなければ空のStateを返す
-func Load(groveDir string) (*WorktreeState, error) {
-	p := filepath.Join(groveDir, stateFile)
+func Load(sangoDir string) (*WorktreeState, error) {
+	p := filepath.Join(sangoDir, stateFile)
 	data, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -59,15 +59,15 @@ func Load(groveDir string) (*WorktreeState, error) {
 }
 
 // Save はworktrees.jsonに書き込む
-func (s *WorktreeState) Save(groveDir string) error {
-	if err := os.MkdirAll(groveDir, 0o755); err != nil {
+func (s *WorktreeState) Save(sangoDir string) error {
+	if err := os.MkdirAll(sangoDir, 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(groveDir, stateFile), data, 0o644)
+	return os.WriteFile(filepath.Join(sangoDir, stateFile), data, 0o644)
 }
 
 // GetActiveWorktree はアクティブなworktreeの情報を返す

@@ -15,7 +15,7 @@ type DockerOptions struct {
 func BuildDockerArgs(opts DockerOptions) []string {
 	args := []string{
 		"run", "-d",
-		"--name", fmt.Sprintf("grove-%s", opts.Name),
+		"--name", fmt.Sprintf("sango-%s", opts.Name),
 		"-p", fmt.Sprintf("%d:%d", opts.Port, opts.Port),
 	}
 

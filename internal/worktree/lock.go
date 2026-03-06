@@ -16,8 +16,8 @@ type Lock struct {
 }
 
 // AcquireLock はファイルロックを取得する（ブロッキング）
-func AcquireLock(groveDir, name string) (*Lock, error) {
-	lockDir := filepath.Join(groveDir, "locks")
+func AcquireLock(sangoDir, name string) (*Lock, error) {
+	lockDir := filepath.Join(sangoDir, "locks")
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
 		return nil, fmt.Errorf("ロックディレクトリの作成に失敗: %w", err)
 	}
@@ -37,8 +37,8 @@ func AcquireLock(groveDir, name string) (*Lock, error) {
 }
 
 // TryLock はファイルロックを非ブロッキングで試行する
-func TryLock(groveDir, name string) (*Lock, error) {
-	lockDir := filepath.Join(groveDir, "locks")
+func TryLock(sangoDir, name string) (*Lock, error) {
+	lockDir := filepath.Join(sangoDir, "locks")
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
 		return nil, fmt.Errorf("ロックディレクトリの作成に失敗: %w", err)
 	}

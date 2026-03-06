@@ -3,11 +3,12 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Config はgrove.yamlのルート構造体
+// Config はsango.yamlのルート構造体
 type Config struct {
 	Name     string              `yaml:"name"`
 	Version  string              `yaml:"version"`
@@ -16,6 +17,15 @@ type Config struct {
 	Profiles map[string]Profile  `yaml:"profiles"`
 	Doctor   DoctorConfig        `yaml:"doctor"`
 	Worktree WorktreeConfig      `yaml:"worktree"`
+	Log      LogConfig           `yaml:"log"`
+}
+
+// LogConfig はログ管理の設定
+type LogConfig struct {
+	MaxSize  string `yaml:"max_size"`  // "50MB"
+	MaxFiles int    `yaml:"max_files"` // 5
+	MaxAge   string `yaml:"max_age"`   // "7d"
+	Compress bool   `yaml:"compress"`  // gzip圧縮
 }
 
 // WorktreeConfig はワークツリー管理の設定
@@ -29,7 +39,7 @@ type WorktreeConfig struct {
 
 // IncludeConfig はworktree作成時のファイル配置設定
 type IncludeConfig struct {
-	Common     []IncludeEntry            `yaml:"common"`
+	Root       []IncludeEntry            `yaml:"root"`
 	PerService map[string][]IncludeEntry `yaml:"per_service"`
 }
 
@@ -38,6 +48,7 @@ type IncludeEntry struct {
 	Source   string `yaml:"source"`
 	Target   string `yaml:"target"`
 	Strategy string `yaml:"strategy"` // copy | symlink | template
+	Required bool   `yaml:"required"` // trueなら失敗時にworktree作成を中止
 }
 
 // HooksConfig はworktreeライフサイクルのフック設定
@@ -75,6 +86,7 @@ type Service struct {
 	RepoPath     string            `yaml:"repo_path"`
 	RunOn        []string          `yaml:"run_on"`
 	Troubleshoot []TroubleshootCheck `yaml:"troubleshoot"`
+	Runbook      []RunbookEntry      `yaml:"runbook"`
 }
 
 // Healthcheck はヘルスチェック設定
@@ -113,11 +125,70 @@ type DoctorCheck struct {
 	Fix     string `yaml:"fix"`
 }
 
+// RunbookEntry はサービス固有のナレッジベースエントリ
+type RunbookEntry struct {
+	Title    string   `yaml:"title"`
+	Symptoms []string `yaml:"symptoms"`
+	Cause    string   `yaml:"cause"`
+	Steps    []string `yaml:"steps"`
+	Tags     []string `yaml:"tags"`
+}
+
 // TroubleshootCheck はトラブルシュート用チェック項目
 type TroubleshootCheck struct {
 	Name        string `yaml:"name"`
 	Command     string `yaml:"command"`
 	Description string `yaml:"description"`
+	Expect      string `yaml:"expect"`
+	Fix         string `yaml:"fix"`
+}
+
+// ParseInterval はintervalをtime.Durationに変換する。デフォルト5s
+func (h *Healthcheck) ParseInterval() time.Duration {
+	if h.Interval == "" {
+		return 5 * time.Second
+	}
+	d, err := time.ParseDuration(h.Interval)
+	if err != nil {
+		return 5 * time.Second
+	}
+	return d
+}
+
+// ParseTimeout はtimeoutをtime.Durationに変換する。デフォルト3s
+func (h *Healthcheck) ParseTimeout() time.Duration {
+	if h.Timeout == "" {
+		return 3 * time.Second
+	}
+	d, err := time.ParseDuration(h.Timeout)
+	if err != nil {
+		return 3 * time.Second
+	}
+	return d
+}
+
+// ParseStartPeriod はstart_periodをtime.Durationに変換する。デフォルト0
+func (h *Healthcheck) ParseStartPeriod() time.Duration {
+	if h.StartPeriod == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(h.StartPeriod)
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
+// ParseRestartDelay はrestart_delayをtime.Durationに変換する。デフォルト1s
+func (s *Service) ParseRestartDelay() time.Duration {
+	if s.RestartDelay == "" {
+		return 1 * time.Second
+	}
+	d, err := time.ParseDuration(s.RestartDelay)
+	if err != nil {
+		return 1 * time.Second
+	}
+	return d
 }
 
 // 許可されるサービスタイプ
@@ -127,7 +198,7 @@ var validServiceTypes = map[string]bool{
 	"script":  true,
 }
 
-// Load はgrove.yamlを読み込んでConfigを返す
+// Load はsango.yamlを読み込んでConfigを返す
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

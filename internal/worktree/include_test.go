@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ryugen04/grove/internal/config"
+	"github.com/ryugen04/sango-tree/internal/config"
 )
 
 // テスト用ソースファイルを作成するヘルパー
@@ -16,6 +16,14 @@ func createTestFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("テストファイルの作成に失敗: %v", err)
+	}
+}
+
+// テスト用ディレクトリを作成するヘルパー
+func createTestDir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("テストディレクトリの作成に失敗: %v", err)
 	}
 }
 
@@ -35,7 +43,7 @@ func TestProcessEntry_Copy(t *testing.T) {
 	targetDir := t.TempDir()
 
 	// ソースファイルを作成する
-	srcContent := "hello, grove!"
+	srcContent := "hello, sango!"
 	createTestFile(t, filepath.Join(baseDir, "config.txt"), srcContent)
 
 	entry := config.IncludeEntry{
@@ -101,6 +109,81 @@ func TestProcessEntry_Symlink(t *testing.T) {
 	}
 }
 
+// TestProcessEntry_SymlinkDir はディレクトリへのsymlinkが正しく作成されるかテストする
+func TestProcessEntry_SymlinkDir(t *testing.T) {
+	baseDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	// ソースディレクトリを作成する
+	srcDir := filepath.Join(baseDir, ".claude")
+	createTestDir(t, srcDir)
+	createTestFile(t, filepath.Join(srcDir, "settings.json"), `{"key": "value"}`)
+
+	entry := config.IncludeEntry{
+		Source:   ".claude",
+		Target:   ".claude",
+		Strategy: "symlink",
+	}
+
+	if err := processEntry(baseDir, targetDir, entry, nil); err != nil {
+		t.Fatalf("processEntry に失敗: %v", err)
+	}
+
+	dstPath := filepath.Join(targetDir, ".claude")
+
+	// シンボリックリンクであることを確認する
+	info, err := os.Lstat(dstPath)
+	if err != nil {
+		t.Fatalf("Lstat に失敗: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("ディレクトリへのシンボリックリンクが作成されていない")
+	}
+
+	// リンク先のファイルにアクセスできることを確認する
+	got := readFile(t, filepath.Join(dstPath, "settings.json"))
+	if got != `{"key": "value"}` {
+		t.Errorf("リンク先ディレクトリの内容が一致しない: %q", got)
+	}
+}
+
+// TestProcessEntry_CopyDir_Error はディレクトリにcopy指定でエラーが返ることをテストする
+func TestProcessEntry_CopyDir_Error(t *testing.T) {
+	baseDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	// ソースディレクトリを作成する
+	createTestDir(t, filepath.Join(baseDir, "mydir"))
+
+	entry := config.IncludeEntry{
+		Source:   "mydir",
+		Target:   "mydir",
+		Strategy: "copy",
+	}
+
+	if err := processEntry(baseDir, targetDir, entry, nil); err == nil {
+		t.Error("ディレクトリにcopy指定でエラーが返らなかった")
+	}
+}
+
+// TestProcessEntry_TemplateDir_Error はディレクトリにtemplate指定でエラーが返ることをテストする
+func TestProcessEntry_TemplateDir_Error(t *testing.T) {
+	baseDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	createTestDir(t, filepath.Join(baseDir, "mydir"))
+
+	entry := config.IncludeEntry{
+		Source:   "mydir",
+		Target:   "mydir",
+		Strategy: "template",
+	}
+
+	if err := processEntry(baseDir, targetDir, entry, nil); err == nil {
+		t.Error("ディレクトリにtemplate指定でエラーが返らなかった")
+	}
+}
+
 // TestProcessEntry_Template はtemplate strategyの変数展開をテストする
 func TestProcessEntry_Template(t *testing.T) {
 	baseDir := t.TempDir()
@@ -117,11 +200,11 @@ func TestProcessEntry_Template(t *testing.T) {
 	}
 
 	vars := map[string]string{
-		"port":             "3000",
+		"port":              "3000",
 		"services.api.port": "8080",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, vars, ); err != nil {
+	if err := processEntry(baseDir, targetDir, entry, vars); err != nil {
 		t.Fatalf("processEntry に失敗: %v", err)
 	}
 
@@ -151,18 +234,18 @@ func TestProcessEntry_UnknownStrategy(t *testing.T) {
 	}
 }
 
-// TestExpandIncludes_Common はcommonエントリが全サービスに配置されることをテストする
-func TestExpandIncludes_Common(t *testing.T) {
+// TestExpandIncludes_Root はrootエントリがworktreeルートに配置されることをテストする
+func TestExpandIncludes_Root(t *testing.T) {
 	worktreeDir := t.TempDir()
 
 	// ソースファイルをworktreeDirに作成する
-	createTestFile(t, filepath.Join(worktreeDir, "common.env"), "COMMON=true")
+	createTestFile(t, filepath.Join(worktreeDir, "root.env"), "ROOT=true")
 
 	include := config.IncludeConfig{
-		Common: []config.IncludeEntry{
+		Root: []config.IncludeEntry{
 			{
-				Source:   "common.env",
-				Target:   "common.env",
+				Source:   "root.env",
+				Target:   "root-copy.env",
 				Strategy: "copy",
 			},
 		},
@@ -170,17 +253,18 @@ func TestExpandIncludes_Common(t *testing.T) {
 
 	services := []string{"api", "worker"}
 
-	if err := ExpandIncludes(worktreeDir, services, include, nil); err != nil {
-		t.Fatalf("ExpandIncludes に失敗: %v", err)
+	result := ExpandIncludes(worktreeDir, services, include, nil)
+	if result.HasErrors() {
+		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
+	}
+	if result.WarningError() != nil {
+		t.Fatalf("ExpandIncludes で警告: %v", result.WarningError())
 	}
 
-	// 全サービスにファイルが配置されていることを確認する
-	for _, svc := range services {
-		dstPath := filepath.Join(worktreeDir, svc, "common.env")
-		got := readFile(t, dstPath)
-		if got != "COMMON=true" {
-			t.Errorf("サービス %s のファイル内容が一致しない: %q", svc, got)
-		}
+	// worktreeルートにファイルが配置されていることを確認する
+	got := readFile(t, filepath.Join(worktreeDir, "root-copy.env"))
+	if got != "ROOT=true" {
+		t.Errorf("ルートのファイル内容が一致しない: %q", got)
 	}
 }
 
@@ -222,8 +306,9 @@ func TestExpandIncludes_PerService(t *testing.T) {
 	// dbはservicesに含まれない
 	services := []string{"api", "worker"}
 
-	if err := ExpandIncludes(worktreeDir, services, include, nil); err != nil {
-		t.Fatalf("ExpandIncludes に失敗: %v", err)
+	result := ExpandIncludes(worktreeDir, services, include, nil)
+	if result.HasErrors() {
+		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
 	}
 
 	// apiのファイルを確認する
@@ -245,20 +330,20 @@ func TestExpandIncludes_PerService(t *testing.T) {
 	}
 }
 
-// TestExpandIncludes_CommonAndPerService はcommonとper_serviceを組み合わせたテスト
-func TestExpandIncludes_CommonAndPerService(t *testing.T) {
+// TestExpandIncludes_RootAndPerService はrootとper_serviceを組み合わせたテスト
+func TestExpandIncludes_RootAndPerService(t *testing.T) {
 	worktreeDir := t.TempDir()
 
 	// ソースファイルを作成する
-	createTestFile(t, filepath.Join(worktreeDir, "common.tmpl"), "PORT=${port}")
+	createTestFile(t, filepath.Join(worktreeDir, "shared.env"), "SHARED=true")
 	createTestFile(t, filepath.Join(worktreeDir, "api-extra.txt"), "API_ONLY=true")
 
 	include := config.IncludeConfig{
-		Common: []config.IncludeEntry{
+		Root: []config.IncludeEntry{
 			{
-				Source:   "common.tmpl",
-				Target:   "common.env",
-				Strategy: "template",
+				Source:   "shared.env",
+				Target:   "shared-copy.env",
+				Strategy: "copy",
 			},
 		},
 		PerService: map[string][]config.IncludeEntry{
@@ -273,18 +358,16 @@ func TestExpandIncludes_CommonAndPerService(t *testing.T) {
 	}
 
 	services := []string{"api", "worker"}
-	vars := map[string]string{"port": "3000"}
 
-	if err := ExpandIncludes(worktreeDir, services, include, vars); err != nil {
-		t.Fatalf("ExpandIncludes に失敗: %v", err)
+	result := ExpandIncludes(worktreeDir, services, include, nil)
+	if result.HasErrors() {
+		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
 	}
 
-	// commonエントリが両サービスに展開されていることを確認する
-	for _, svc := range services {
-		got := readFile(t, filepath.Join(worktreeDir, svc, "common.env"))
-		if got != "PORT=3000" {
-			t.Errorf("サービス %s の common.env が一致しない: %q", svc, got)
-		}
+	// rootエントリがworktreeルートに配置されていることを確認する
+	got := readFile(t, filepath.Join(worktreeDir, "shared-copy.env"))
+	if got != "SHARED=true" {
+		t.Errorf("ルートの shared-copy.env が一致しない: %q", got)
 	}
 
 	// per_serviceエントリがapiのみに配置されていることを確認する
@@ -300,39 +383,74 @@ func TestExpandIncludes_CommonAndPerService(t *testing.T) {
 	}
 }
 
-// TestExpandIncludes_ErrorAccumulation はエラーが蓄積されて返ることをテストする
-func TestExpandIncludes_ErrorAccumulation(t *testing.T) {
+// TestExpandIncludes_RequiredError はrequired=trueのエントリ失敗がErrorsに入ることをテストする
+func TestExpandIncludes_RequiredError(t *testing.T) {
 	worktreeDir := t.TempDir()
 
-	// ソースファイルを意図的に作成しない（エラーを発生させる）
 	include := config.IncludeConfig{
-		Common: []config.IncludeEntry{
+		Root: []config.IncludeEntry{
 			{
-				Source:   "nonexistent1.txt",
-				Target:   "out1.txt",
+				Source:   "nonexistent.txt",
+				Target:   "out.txt",
 				Strategy: "copy",
-			},
-			{
-				Source:   "nonexistent2.txt",
-				Target:   "out2.txt",
-				Strategy: "copy",
+				Required: true,
 			},
 		},
 	}
 
-	services := []string{"api"}
+	result := ExpandIncludes(worktreeDir, []string{"api"}, include, nil)
+	if !result.HasErrors() {
+		t.Fatal("required=trueのエントリ失敗がErrorsに入っていない")
+	}
+	if result.WarningError() != nil {
+		t.Error("required=trueの失敗がWarningsにも入ってしまった")
+	}
+}
 
-	err := ExpandIncludes(worktreeDir, services, include, nil)
-	if err == nil {
-		t.Fatal("存在しないファイルに対してエラーが返らなかった")
+// TestExpandIncludes_OptionalWarning はrequired=falseのエントリ失敗がWarningsに入ることをテストする
+func TestExpandIncludes_OptionalWarning(t *testing.T) {
+	worktreeDir := t.TempDir()
+
+	include := config.IncludeConfig{
+		Root: []config.IncludeEntry{
+			{
+				Source:   "nonexistent.txt",
+				Target:   "out.txt",
+				Strategy: "copy",
+				Required: false,
+			},
+		},
 	}
 
-	// 複数のエラーが含まれていることを確認する（途中で止まっていない）
-	errMsg := err.Error()
-	if !containsService([]string{errMsg}, "nonexistent1.txt") {
-		// エラーメッセージにnonexistent1.txtが含まれているか確認する
-		// errors.Join は改行区切りでエラーをつなぐ
-		t.Logf("エラー内容: %v", err)
+	result := ExpandIncludes(worktreeDir, []string{"api"}, include, nil)
+	if result.HasErrors() {
+		t.Error("required=falseの失敗がErrorsに入ってしまった")
+	}
+	if result.WarningError() == nil {
+		t.Fatal("required=falseの失敗がWarningsに入っていない")
+	}
+}
+
+// TestExpandIncludes_PerServiceRequired はper_serviceのrequiredエントリ失敗をテストする
+func TestExpandIncludes_PerServiceRequired(t *testing.T) {
+	worktreeDir := t.TempDir()
+
+	include := config.IncludeConfig{
+		PerService: map[string][]config.IncludeEntry{
+			"api": {
+				{
+					Source:   "nonexistent.txt",
+					Target:   "out.txt",
+					Strategy: "copy",
+					Required: true,
+				},
+			},
+		},
+	}
+
+	result := ExpandIncludes(worktreeDir, []string{"api"}, include, nil)
+	if !result.HasErrors() {
+		t.Fatal("per_serviceのrequired=trueエントリ失敗がErrorsに入っていない")
 	}
 }
 

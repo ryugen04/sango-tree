@@ -62,10 +62,10 @@ func runGit(t *testing.T, dir string, args ...string) {
 
 // TestBareRepoDir はBareRepoDirが正しいパスを返すことを検証する
 func TestBareRepoDir(t *testing.T) {
-	groveDir := "/tmp/grove"
+	sangoDir := "/tmp/sango"
 	name := "api"
-	got := BareRepoDir(groveDir, name)
-	want := "/tmp/grove/bare/api.git"
+	got := BareRepoDir(sangoDir, name)
+	want := "/tmp/sango/bare/api.git"
 	if got != want {
 		t.Errorf("BareRepoDir = %q, want %q", got, want)
 	}
@@ -75,15 +75,15 @@ func TestBareRepoDir(t *testing.T) {
 func TestBareClone(t *testing.T) {
 	originBare, _ := setupBareAndSource(t)
 
-	groveDir := t.TempDir()
+	sangoDir := t.TempDir()
 	name := "myservice"
 
-	if err := BareClone(groveDir, name, originBare, false); err != nil {
+	if err := BareClone(sangoDir, name, originBare, false); err != nil {
 		t.Fatalf("BareClone 失敗: %v", err)
 	}
 
 	// ベアリポジトリのディレクトリが作成されているか確認する
-	clonedDir := BareRepoDir(groveDir, name)
+	clonedDir := BareRepoDir(sangoDir, name)
 	if _, err := os.Stat(clonedDir); err != nil {
 		t.Fatalf("クローン先ディレクトリが存在しない: %v", err)
 	}
@@ -99,14 +99,14 @@ func TestBareClone(t *testing.T) {
 func TestBareCloneShallow(t *testing.T) {
 	originBare, _ := setupBareAndSource(t)
 
-	groveDir := t.TempDir()
+	sangoDir := t.TempDir()
 	name := "shallowsvc"
 
-	if err := BareClone(groveDir, name, originBare, true); err != nil {
+	if err := BareClone(sangoDir, name, originBare, true); err != nil {
 		t.Fatalf("BareClone（shallow）失敗: %v", err)
 	}
 
-	clonedDir := BareRepoDir(groveDir, name)
+	clonedDir := BareRepoDir(sangoDir, name)
 	if _, err := os.Stat(clonedDir); err != nil {
 		t.Fatalf("クローン先ディレクトリが存在しない: %v", err)
 	}
@@ -116,17 +116,17 @@ func TestBareCloneShallow(t *testing.T) {
 func TestWorktreeAdd(t *testing.T) {
 	originBare, _ := setupBareAndSource(t)
 
-	groveDir := t.TempDir()
+	sangoDir := t.TempDir()
 	name := "myservice"
 
 	// まずベアリポジトリをクローンする
-	if err := BareClone(groveDir, name, originBare, false); err != nil {
+	if err := BareClone(sangoDir, name, originBare, false); err != nil {
 		t.Fatalf("BareClone 失敗: %v", err)
 	}
 
 	// worktreeのパスを指定してmainブランチをチェックアウトする
 	worktreePath := filepath.Join(t.TempDir(), "wt-main")
-	if err := WorktreeAdd(groveDir, name, worktreePath, "main"); err != nil {
+	if err := WorktreeAdd(sangoDir, name, worktreePath, "main"); err != nil {
 		t.Fatalf("WorktreeAdd 失敗: %v", err)
 	}
 
@@ -146,17 +146,17 @@ func TestWorktreeAdd(t *testing.T) {
 func TestWorktreeAddNewBranch(t *testing.T) {
 	originBare, _ := setupBareAndSource(t)
 
-	groveDir := t.TempDir()
+	sangoDir := t.TempDir()
 	name := "myservice"
 
 	// まずベアリポジトリをクローンする
-	if err := BareClone(groveDir, name, originBare, false); err != nil {
+	if err := BareClone(sangoDir, name, originBare, false); err != nil {
 		t.Fatalf("BareClone 失敗: %v", err)
 	}
 
 	// 新規ブランチfeature/newをmainから作成してworktreeとして追加する
 	worktreePath := filepath.Join(t.TempDir(), "wt-feature")
-	if err := WorktreeAddNewBranch(groveDir, name, worktreePath, "feature/new", "main"); err != nil {
+	if err := WorktreeAddNewBranch(sangoDir, name, worktreePath, "feature/new", "main"); err != nil {
 		t.Fatalf("WorktreeAddNewBranch 失敗: %v", err)
 	}
 
@@ -176,16 +176,16 @@ func TestWorktreeAddNewBranch(t *testing.T) {
 func TestWorktreeRemove(t *testing.T) {
 	originBare, _ := setupBareAndSource(t)
 
-	groveDir := t.TempDir()
+	sangoDir := t.TempDir()
 	name := "myservice"
 
 	// ベアリポジトリをクローンしてworktreeを追加する
-	if err := BareClone(groveDir, name, originBare, false); err != nil {
+	if err := BareClone(sangoDir, name, originBare, false); err != nil {
 		t.Fatalf("BareClone 失敗: %v", err)
 	}
 
 	worktreePath := filepath.Join(t.TempDir(), "wt-to-remove")
-	if err := WorktreeAdd(groveDir, name, worktreePath, "main"); err != nil {
+	if err := WorktreeAdd(sangoDir, name, worktreePath, "main"); err != nil {
 		t.Fatalf("WorktreeAdd 失敗: %v", err)
 	}
 
@@ -194,7 +194,7 @@ func TestWorktreeRemove(t *testing.T) {
 		t.Fatalf("削除前にworktreeが存在しない: %v", err)
 	}
 
-	if err := WorktreeRemove(groveDir, name, worktreePath, false); err != nil {
+	if err := WorktreeRemove(sangoDir, name, worktreePath, false); err != nil {
 		t.Fatalf("WorktreeRemove 失敗: %v", err)
 	}
 
@@ -208,16 +208,16 @@ func TestWorktreeRemove(t *testing.T) {
 func TestWorktreeRemoveForce(t *testing.T) {
 	originBare, _ := setupBareAndSource(t)
 
-	groveDir := t.TempDir()
+	sangoDir := t.TempDir()
 	name := "myservice"
 
 	// ベアリポジトリをクローンしてworktreeを追加する
-	if err := BareClone(groveDir, name, originBare, false); err != nil {
+	if err := BareClone(sangoDir, name, originBare, false); err != nil {
 		t.Fatalf("BareClone 失敗: %v", err)
 	}
 
 	worktreePath := filepath.Join(t.TempDir(), "wt-force-remove")
-	if err := WorktreeAdd(groveDir, name, worktreePath, "main"); err != nil {
+	if err := WorktreeAdd(sangoDir, name, worktreePath, "main"); err != nil {
 		t.Fatalf("WorktreeAdd 失敗: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestWorktreeRemoveForce(t *testing.T) {
 	}
 
 	// force=trueで削除する
-	if err := WorktreeRemove(groveDir, name, worktreePath, true); err != nil {
+	if err := WorktreeRemove(sangoDir, name, worktreePath, true); err != nil {
 		t.Fatalf("WorktreeRemove（force）失敗: %v", err)
 	}
 
