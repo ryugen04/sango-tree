@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/ryugen04/sango-tree/internal/process"
 	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
@@ -29,6 +30,10 @@ var worktreeStatusCmd = &cobra.Command{
 		green := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 		gray := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 		bold := lipgloss.NewStyle().Bold(true)
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
+		headerStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
+		cellStyle := lipgloss.NewStyle().Padding(0, 1)
 
 		// worktree名をソート
 		wtNames := make([]string, 0, len(ws.Worktrees))
@@ -44,24 +49,36 @@ var worktreeStatusCmd = &cobra.Command{
 			// ヘッダー
 			header := wtName
 			if wtName == ws.Active {
-				header = "* " + wtName + " (active)"
+				header = "* " + green.Render(wtName) + " (active)"
 			}
-			fmt.Println(bold.Render(header))
-			fmt.Printf("  offset: %d, services: %d\n", wt.Offset, len(wt.Services))
+			fmt.Printf("%s  %s\n", bold.Render(header), dim.Render(fmt.Sprintf("offset:%d", wt.Offset)))
 
-			// サービス状態
-			serviceNames := make([]string, len(wt.Services))
-			copy(serviceNames, wt.Services)
-			sort.Strings(serviceNames)
-
-			for _, name := range serviceNames {
+			// サーバーサービスのみ抽出
+			serviceNames := make([]string, 0)
+			for _, name := range wt.Services {
 				svc := cfg.Services[name]
 				if svc == nil {
 					continue
 				}
+				// repo-onlyサービスをスキップ
+				if svc.Repo != "" && svc.Command == "" {
+					continue
+				}
+				serviceNames = append(serviceNames, name)
+			}
+			sort.Strings(serviceNames)
+
+			if len(serviceNames) == 0 {
+				fmt.Println()
+				continue
+			}
+
+			rows := make([][]string, 0, len(serviceNames))
+			for _, name := range serviceNames {
+				svc := cfg.Services[name]
 
 				status := "stopped"
-				pidStr := "-"
+				pidStr := dim.Render("-")
 
 				pidWorktree := wtKey
 				if svc.Shared {
@@ -82,7 +99,7 @@ var worktreeStatusCmd = &cobra.Command{
 					styledStatus = gray.Render(status)
 				}
 
-				portStr := "-"
+				portStr := dim.Render("-")
 				if svc.Port > 0 {
 					resolvedPort := svc.Port
 					if !svc.Shared {
@@ -91,17 +108,39 @@ var worktreeStatusCmd = &cobra.Command{
 					portStr = strconv.Itoa(resolvedPort)
 				}
 
-				fmt.Printf("  %-15s %-8s %-8s %s\n", name, portStr, styledStatus, pidStr)
+				rows = append(rows, []string{name, portStr, styledStatus, pidStr})
 			}
+
+			t := table.New().
+				Border(lipgloss.NormalBorder()).
+				BorderStyle(dim).
+				BorderRow(false).
+				BorderColumn(false).
+				BorderLeft(false).
+				BorderRight(false).
+				BorderTop(false).
+				BorderBottom(false).
+				BorderHeader(true).
+				StyleFunc(func(row, col int) lipgloss.Style {
+					if row == table.HeaderRow {
+						return headerStyle
+					}
+					return cellStyle
+				}).
+				Headers("SERVICE", "PORT", "STATUS", "PID").
+				Rows(rows...)
+
+			fmt.Println(t)
 			fmt.Println()
 		}
 
 		// sharedサービス表示
 		if len(ws.SharedServices) > 0 {
 			fmt.Println(bold.Render("Shared Services"))
+			rows := make([][]string, 0, len(ws.SharedServices))
 			for name, ss := range ws.SharedServices {
 				status := "stopped"
-				pidStr := "-"
+				pidStr := dim.Render("-")
 				if pid, err := process.ReadPID(sangoDir, "shared", name); err == nil {
 					if process.IsProcessRunning(pid) {
 						status = "running"
@@ -116,8 +155,29 @@ var worktreeStatusCmd = &cobra.Command{
 					styledStatus = gray.Render(status)
 				}
 
-				fmt.Printf("  %-15s %-8d %-8s %s\n", name, ss.Port, styledStatus, pidStr)
+				rows = append(rows, []string{name, strconv.Itoa(ss.Port), styledStatus, pidStr})
 			}
+
+			t := table.New().
+				Border(lipgloss.NormalBorder()).
+				BorderStyle(dim).
+				BorderRow(false).
+				BorderColumn(false).
+				BorderLeft(false).
+				BorderRight(false).
+				BorderTop(false).
+				BorderBottom(false).
+				BorderHeader(true).
+				StyleFunc(func(row, col int) lipgloss.Style {
+					if row == table.HeaderRow {
+						return lipgloss.NewStyle().Bold(true).Padding(0, 1)
+					}
+					return lipgloss.NewStyle().Padding(0, 1)
+				}).
+				Headers("SERVICE", "PORT", "STATUS", "PID").
+				Rows(rows...)
+
+			fmt.Println(t)
 		}
 
 		return nil

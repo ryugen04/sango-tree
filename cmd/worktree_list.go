@@ -2,16 +2,16 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
 var worktreeListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "ワークツリー一覧を表示する",
+	Use:     "list",
+	Short:   "ワークツリー一覧を表示する",
 	Aliases: []string{"ls"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sangoDir := worktree.DefaultDir()
@@ -27,37 +27,46 @@ var worktreeListCmd = &cobra.Command{
 
 		green := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 		bold := lipgloss.NewStyle().Bold(true)
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
-		// ソートして表示
-		names := make([]string, 0, len(ws.Worktrees))
-		for name := range ws.Worktrees {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+		headerStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
+		cellStyle := lipgloss.NewStyle().Padding(0, 1)
 
-		fmt.Printf("%-30s%-10s%-12s%s\n", "WORKTREE", "OFFSET", "SERVICES", "CREATED")
-
-		for _, name := range names {
-			wt := ws.Worktrees[name]
+		rows := make([][]string, 0, len(ws.Worktrees))
+		for name, wt := range ws.Worktrees {
 			display := name
 			if name == ws.Active {
 				display = bold.Render("* " + green.Render(name))
 			}
 
-			// lipglossのパディング補正
-			padding := 30 + len(display) - len(name)
-			if name == ws.Active {
-				padding += 2 // "* " の分
-			}
-
-			fmtStr := fmt.Sprintf("%%-%ds%%-%ds%%-%ds%%s\n", padding, 10, 12)
-			fmt.Printf(fmtStr,
+			rows = append(rows, []string{
 				display,
 				fmt.Sprintf("%d", wt.Offset),
 				fmt.Sprintf("%d", len(wt.Services)),
 				wt.CreatedAt.Format("2006-01-02"),
-			)
+			})
 		}
+
+		t := table.New().
+			Border(lipgloss.NormalBorder()).
+			BorderStyle(dim).
+			BorderRow(false).
+			BorderColumn(false).
+			BorderLeft(false).
+			BorderRight(false).
+			BorderTop(false).
+			BorderBottom(false).
+			BorderHeader(true).
+			StyleFunc(func(row, col int) lipgloss.Style {
+				if row == table.HeaderRow {
+					return headerStyle
+				}
+				return cellStyle
+			}).
+			Headers("WORKTREE", "OFFSET", "SERVICES", "CREATED").
+			Rows(rows...)
+
+		fmt.Println(t)
 
 		return nil
 	},
