@@ -66,10 +66,12 @@ var worktreeRemoveCmd = &cobra.Command{
 			}
 		}
 
+		wtDir := cfg.Worktree.WorktreeDir(branch)
+
 		// pre_removeフック実行
 		if len(cfg.Worktree.Hooks.PreRemove) > 0 {
 			fmt.Println("[sango] pre_removeフックを実行中...")
-			if err := worktree.RunHooks(cfg.Worktree.Hooks.PreRemove, branch, wt.Services); err != nil {
+			if err := worktree.RunHooks(cfg.Worktree.Hooks.PreRemove, wtDir, wt.Services); err != nil {
 				fmt.Printf("[sango] pre_removeフック警告: %v\n", err)
 			}
 		}
@@ -81,7 +83,7 @@ var worktreeRemoveCmd = &cobra.Command{
 				continue
 			}
 
-			wtPath := filepath.Join(branch, name)
+			wtPath := filepath.Join(wtDir, name)
 			fmt.Printf("[sango] %s のワークツリーを削除中...\n", name)
 			if err := worktree.WorktreeRemove(sangoDir, name, wtPath, wtRemoveForce); err != nil {
 				fmt.Printf("[sango] %s のワークツリー削除に失敗: %v\n", name, err)

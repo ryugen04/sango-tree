@@ -14,7 +14,7 @@ var cloneShallow bool
 var cloneCmd = &cobra.Command{
 	Use:   "clone",
 	Short: "リポジトリをクローンしてworktreeを初期化する",
-	Long:  "sango.yamlのrepoフィールドを持つ各サービスをbare cloneし、mainワークツリーを作成する",
+	Long:  "sango.yamlのrepoフィールドを持つ各サービスをbare cloneし、デフォルトブランチのワークツリーを作成する",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -22,6 +22,12 @@ var cloneCmd = &cobra.Command{
 		}
 
 		sangoDir := worktree.DefaultDir()
+
+		// デフォルトブランチ名を決定（worktree名にも使用）
+		defaultBranch := cfg.Worktree.DefaultBranch
+		if defaultBranch == "" {
+			defaultBranch = "main"
+		}
 
 		// 各サービスのリポジトリをbare clone + worktree作成
 		var services []string
@@ -45,13 +51,7 @@ var cloneCmd = &cobra.Command{
 				return fmt.Errorf("サービス %s のクローンに失敗: %w", name, err)
 			}
 
-			// mainワークツリーを作成
-			defaultBranch := cfg.Worktree.DefaultBranch
-			if defaultBranch == "" {
-				defaultBranch = "main"
-			}
-
-			wtPath, err := filepath.Abs(filepath.Join("main", name))
+			wtPath, err := filepath.Abs(filepath.Join(cfg.Worktree.WorktreeDir(defaultBranch), name))
 			if err != nil {
 				return fmt.Errorf("ワークツリーパスの解決に失敗: %w", err)
 			}
@@ -68,9 +68,9 @@ var cloneCmd = &cobra.Command{
 		}
 
 		ws := &worktree.WorktreeState{
-			Active: "main",
+			Active: defaultBranch,
 			Worktrees: map[string]*worktree.WorktreeInfo{
-				"main": {
+				defaultBranch: {
 					Offset:    0,
 					CreatedAt: time.Now(),
 					Services:  services,

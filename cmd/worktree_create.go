@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/ryugen04/sango-tree/internal/config"
 	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
@@ -67,7 +70,10 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 	offset := ws.AllocateOffset(baseOffset)
 
 	// 対象サービスを決定
-	targetServices := resolveWorktreeServices(cfg, wtCreateServices)
+	targetServices, err := resolveWorktreeServices(cfg, wtCreateServices)
+	if err != nil {
+		return err
+	}
 
 	// ベースブランチ
 	baseBranch := wtCreateFrom
@@ -98,21 +104,26 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 			continue
 		}
 
-		absWtPath, err := filepath.Abs(filepath.Join(branch, name))
+		wtDir := cfg.Worktree.WorktreeDir(branch)
+		absWtPath, err := filepath.Abs(filepath.Join(wtDir, name))
 		if err != nil {
 			return fmt.Errorf("ワークツリーパスの解決に失敗: %w", err)
 		}
 		fmt.Printf("[sango] %s のワークツリーを作成中... (branch: %s from %s)\n", name, branch, baseBranch)
 
+		// まず新規ブランチ作成を試み、既存ブランチなら既存ブランチでworktree追加
 		if err := worktree.WorktreeAddNewBranch(sangoDir, name, absWtPath, branch, baseBranch); err != nil {
-			// ロールバック: 作成済みworktreeのみ削除
-			for _, e := range created {
-				fmt.Printf("[sango] ロールバック: %s を削除中...\n", e.serviceName)
-				if err := worktree.WorktreeRemove(sangoDir, e.serviceName, e.path, true); err != nil {
-					fmt.Printf("[sango] ロールバック警告: %s の削除に失敗: %v\n", e.serviceName, err)
+			// 既存ブランチの場合はWorktreeAddにフォールバック
+			if err2 := worktree.WorktreeAdd(sangoDir, name, absWtPath, branch); err2 != nil {
+				// 両方失敗した場合のみロールバック
+				for _, e := range created {
+					fmt.Printf("[sango] ロールバック: %s を削除中...\n", e.serviceName)
+					if rbErr := worktree.WorktreeRemove(sangoDir, e.serviceName, e.path, true); rbErr != nil {
+						fmt.Printf("[sango] ロールバック警告: %s の削除に失敗: %v\n", e.serviceName, rbErr)
+					}
 				}
+				return fmt.Errorf("サービス %s のワークツリー作成に失敗: %w", name, err2)
 			}
-			return fmt.Errorf("サービス %s のワークツリー作成に失敗: %w", name, err)
 		}
 
 		created = append(created, createdEntry{path: absWtPath, serviceName: name})
@@ -123,7 +134,9 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 	if len(cfg.Worktree.Include.Root) > 0 || len(cfg.Worktree.Include.PerService) > 0 {
 		fmt.Println("[sango] includeファイルを展開中...")
 		vars := buildIncludeVars(cfg, offset)
-		result := worktree.ExpandIncludes(branch, allServiceNames, cfg.Worktree.Include, vars)
+		// sourceはプロジェクトルート（cwd）基準、targetはworktreeDir基準
+		projectRoot, _ := os.Getwd()
+		result := worktree.ExpandIncludes(projectRoot, cfg.Worktree.WorktreeDir(branch), allServiceNames, cfg.Worktree.Include, vars)
 		if result.HasErrors() {
 			// ロールバック実行
 			for _, e := range created {
@@ -145,9 +158,14 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 			svc := cfg.Services[name]
 			if len(svc.Setup) > 0 {
 				fmt.Printf("[sango] %s のセットアップを実行中...\n", name)
+				// repo_nameが設定されている場合、参照先のディレクトリを使う
+				dirName := name
+				if svc.RepoName != "" {
+					dirName = svc.RepoName
+				}
 				for _, setupCmd := range svc.Setup {
 					c := exec.Command("sh", "-c", setupCmd)
-					c.Dir = filepath.Join(branch, name)
+					c.Dir = filepath.Join(cfg.Worktree.WorktreeDir(branch), dirName)
 					if out, err := c.CombinedOutput(); err != nil {
 						fmt.Printf("[sango] %s のセットアップ警告: %v\n%s", name, err, out)
 					}
@@ -159,7 +177,7 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 	// post_createフック実行
 	if len(cfg.Worktree.Hooks.PostCreate) > 0 {
 		fmt.Println("[sango] post_createフックを実行中...")
-		if err := worktree.RunHooks(cfg.Worktree.Hooks.PostCreate, branch, allServiceNames); err != nil {
+		if err := worktree.RunHooks(cfg.Worktree.Hooks.PostCreate, cfg.Worktree.WorktreeDir(branch), allServiceNames); err != nil {
 			fmt.Printf("[sango] post_createフック警告: %v\n", err)
 		}
 	}
@@ -180,16 +198,125 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 	return nil
 }
 
+// repoInfo はリポジトリの表示用情報
+type repoInfo struct {
+	Name    string   // リポジトリ名（サービス名）
+	Servers []string // このリポジトリに紐づくサーバー名
+}
+
+// collectRepos はConfigからリポジトリ一覧を収集する
+func collectRepos(cfg *config.Config) []repoInfo {
+	// repo フィールドを持つサービス = リポジトリ
+	repos := make(map[string]*repoInfo)
+	var repoOrder []string
+
+	for name, svc := range cfg.Services {
+		if svc.Repo != "" {
+			repos[name] = &repoInfo{Name: name}
+			repoOrder = append(repoOrder, name)
+		}
+	}
+	sort.Strings(repoOrder)
+
+	// repo_name で参照しているサーバーを紐づける
+	for name, svc := range cfg.Services {
+		if svc.RepoName != "" {
+			if ri, ok := repos[svc.RepoName]; ok {
+				ri.Servers = append(ri.Servers, name)
+			}
+		}
+	}
+
+	// サーバー名をソート
+	for _, ri := range repos {
+		sort.Strings(ri.Servers)
+	}
+
+	var result []repoInfo
+	for _, name := range repoOrder {
+		result = append(result, *repos[name])
+	}
+	return result
+}
+
+// reposToServices は選択されたリポジトリ名から対象サービスリストを返す
+// リポジトリ自体 + repo_name で参照するサーバー + shared サービスを含む
+func reposToServices(cfg *config.Config, selectedRepos []string) []string {
+	selected := make(map[string]bool)
+	for _, r := range selectedRepos {
+		selected[r] = true
+	}
+
+	var services []string
+	for name, svc := range cfg.Services {
+		// sharedサービスは常に含める
+		if svc.Shared {
+			services = append(services, name)
+			continue
+		}
+		// 選択されたリポジトリ自体
+		if selected[name] {
+			services = append(services, name)
+			continue
+		}
+		// repo_name が選択されたリポジトリを参照している
+		if svc.RepoName != "" && selected[svc.RepoName] {
+			services = append(services, name)
+		}
+	}
+	sort.Strings(services)
+	return services
+}
+
 // resolveWorktreeServices は対象サービスリストを返す
-func resolveWorktreeServices(cfg *config.Config, servicesFlag string) []string {
+func resolveWorktreeServices(cfg *config.Config, servicesFlag string) ([]string, error) {
+	// --services フラグが指定された場合はそのまま返す
 	if servicesFlag != "" {
-		return strings.Split(servicesFlag, ",")
+		return strings.Split(servicesFlag, ","), nil
 	}
-	var names []string
-	for name := range cfg.Services {
-		names = append(names, name)
+
+	// インタラクティブにリポジトリを選択
+	repos := collectRepos(cfg)
+	if len(repos) == 0 {
+		// リポジトリがない場合は全サービスを返す
+		var names []string
+		for name := range cfg.Services {
+			names = append(names, name)
+		}
+		return names, nil
 	}
-	return names
+
+	// 選択肢を構築（デフォルトで全リポジトリを選択状態）
+	var options []huh.Option[string]
+	for _, ri := range repos {
+		desc := ri.Name
+		if len(ri.Servers) > 0 {
+			desc = fmt.Sprintf("%s (%s)", ri.Name, strings.Join(ri.Servers, ", "))
+		} else {
+			desc = fmt.Sprintf("%s (サーバーなし)", ri.Name)
+		}
+		options = append(options, huh.NewOption(desc, ri.Name).Selected(true))
+	}
+
+	var selectedRepos []string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("対象リポジトリを選択してください").
+				Options(options...).
+				Value(&selectedRepos),
+		),
+	)
+
+	if err := form.Run(); err != nil {
+		return nil, fmt.Errorf("リポジトリ選択がキャンセルされました: %w", err)
+	}
+
+	if len(selectedRepos) == 0 {
+		return nil, fmt.Errorf("リポジトリが選択されていません")
+	}
+
+	return reposToServices(cfg, selectedRepos), nil
 }
 
 // buildIncludeVars はinclude/template展開用の変数マップを構築する
@@ -204,4 +331,3 @@ func buildIncludeVars(cfg *config.Config, offset int) map[string]string {
 	}
 	return vars
 }
-
