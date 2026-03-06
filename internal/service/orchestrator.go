@@ -25,6 +25,7 @@ type Orchestrator struct {
 	sangoDir string
 	wtName   string
 	wtKey    string
+	wtDir    string // worktreeディレクトリ (例: "worktrees/main")
 	offset   int
 }
 
@@ -48,12 +49,16 @@ func NewOrchestratorWithWorktree(cfg *config.Config, cfgFile, worktreeFlag strin
 		offset = wt.Offset
 	}
 
+	// オフセット決定後に変数展開を実行
+	config.ExpandVariablesWithOffset(cfg, offset)
+
 	return &Orchestrator{
 		cfg:      cfg,
 		cfgFile:  cfgFile,
 		sangoDir: sangoDir,
 		wtName:   wtName,
 		wtKey:    wtKey,
+		wtDir:    cfg.Worktree.WorktreeDir(wtName),
 		offset:   offset,
 	}, nil
 }
@@ -95,9 +100,37 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 
 	for _, name := range order {
 		svc := o.cfg.Services[name]
+
+		// commandなしサービス（repo-only）はスキップ
+		if svc.Command == "" && svc.Type != "docker" {
+			result.Started = append(result.Started, ServiceInfo{
+				Name:   name,
+				Type:   svc.Type,
+				Status: "skipped",
+			})
+			continue
+		}
+
 		resolvedPort := port.ResolvePort(svc.Port, o.offset, svc.Shared)
 
 		if svc.Shared {
+			// sharedのscriptタイプはヘルスチェック用コマンド（外部管理サービス）
+			// PID管理不要、コマンド実行して成功すればOK
+			if svc.Type == "script" {
+				c := exec.Command("sh", "-c", svc.Command)
+				if out, err := c.CombinedOutput(); err != nil {
+					result.Errors = append(result.Errors, fmt.Sprintf("sharedサービス %s の確認に失敗: %v\n%s", name, err, out))
+					continue
+				}
+				result.Started = append(result.Started, ServiceInfo{
+					Name:   name,
+					Type:   svc.Type,
+					Port:   resolvedPort,
+					Status: "external",
+				})
+				continue
+			}
+
 			lock, err := worktree.AcquireLock(o.sangoDir, fmt.Sprintf("shared-%s", name))
 			if err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("sharedロックの取得に失敗 (%s): %v", name, err))
@@ -131,7 +164,18 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 			continue
 		}
 
-		workingDir := ResolveWorkingDir(svc, o.wtName, name)
+		// 既に起動中ならスキップ
+		if pm.IsRunning(name) {
+			result.Started = append(result.Started, ServiceInfo{
+				Name:   name,
+				Type:   svc.Type,
+				Port:   resolvedPort,
+				Status: "already_running",
+			})
+			continue
+		}
+
+		workingDir := ResolveWorkingDir(svc, o.wtDir, name)
 
 		switch svc.Type {
 		case "docker":
@@ -360,6 +404,18 @@ func (o *Orchestrator) Status() (*StatusResult, error) {
 		Worktree: o.wtName,
 	}
 
+	// ワークツリー一覧を取得
+	ws, err := worktree.Load(o.sangoDir)
+	if err == nil && ws != nil {
+		for name, wt := range ws.Worktrees {
+			result.Worktrees = append(result.Worktrees, WorktreeInfo{
+				Name:     name,
+				Offset:   wt.Offset,
+				IsActive: name == ws.Active,
+			})
+		}
+	}
+
 	names := make([]string, 0, len(o.cfg.Services))
 	for name := range o.cfg.Services {
 		names = append(names, name)
@@ -380,23 +436,48 @@ func (o *Orchestrator) Status() (*StatusResult, error) {
 		status := "stopped"
 		pid := 0
 
-		pidWorktree := o.wtKey
-		if svc.Shared {
-			pidWorktree = "shared"
-		}
-
-		if p, err := process.ReadPID(o.sangoDir, pidWorktree, name); err == nil {
-			if process.IsProcessRunning(p) {
+		// shared + script サービス（外部管理コンテナ等）はコマンド実行で状態判定
+		if svc.Shared && svc.Type == "script" && svc.Command != "" {
+			c := exec.Command("sh", "-c", svc.Command)
+			if err := c.Run(); err == nil {
 				status = "running"
-				pid = p
+			}
+		} else {
+			pidWorktree := o.wtKey
+			if svc.Shared {
+				pidWorktree = "shared"
+			}
+
+			if p, err := process.ReadPID(o.sangoDir, pidWorktree, name); err == nil {
+				if process.IsProcessRunning(p) {
+					status = "running"
+					pid = p
+				}
+			}
+
+			// PIDが見つからなくても、ポートがリッスンされていればrunningとする
+			// (Gradleのような多段プロセスでは親PIDが終了し子プロセスが残る)
+			if status == "stopped" && resolvedPort > 0 {
+				checkCmd := exec.Command("lsof", "-t", "-i", fmt.Sprintf(":%d", resolvedPort), "-sTCP:LISTEN")
+				if out, err := checkCmd.Output(); err == nil && len(out) > 0 {
+					status = "running"
+				}
 			}
 		}
 
-		state := process.ReadState(o.sangoDir, pidWorktree, name)
+		state := process.ReadState(o.sangoDir, o.wtKey, name)
 		health := ""
 		if state.HealthStatus != "" {
 			health = state.HealthStatus
 		}
+
+		// healthcheckが定義されていてhealthy状態ならrunningとする
+		if status == "stopped" && health == "healthy" {
+			status = "running"
+		}
+
+		// repo-onlyサービス判定: repoあり + commandなし
+		isRepoOnly := svc.Repo != "" && svc.Command == ""
 
 		result.Services = append(result.Services, ServiceInfo{
 			Name:         name,
@@ -406,6 +487,8 @@ func (o *Orchestrator) Status() (*StatusResult, error) {
 			Health:       health,
 			PID:          pid,
 			RestartCount: state.RestartCount,
+			IsRepoOnly:   isRepoOnly,
+			IsShared:     svc.Shared,
 		})
 	}
 
@@ -465,13 +548,37 @@ func ResolveTargets(cfg *config.Config, args []string, profile string) []string 
 }
 
 // ResolveWorkingDir はサービスのWorkingDirを解決する
+// wtName配下を優先し、存在しなければdirName直下にフォールバックする
+// （sango clone未実行のmainワークツリー対応）
 func ResolveWorkingDir(svc *config.Service, wtName, serviceName string) string {
-	if svc.WorkingDir != "" {
-		return filepath.Join(wtName, serviceName, svc.WorkingDir)
+	// repo_nameが設定されている場合、参照先サービスのディレクトリを使う
+	dirName := serviceName
+	if svc.RepoName != "" {
+		dirName = svc.RepoName
 	}
-	wtDir := filepath.Join(wtName, serviceName)
+
+	if svc.WorkingDir != "" {
+		// wtName/dirName/WorkingDir を優先
+		fullPath := filepath.Join(wtName, dirName, svc.WorkingDir)
+		if info, err := os.Stat(fullPath); err == nil && info.IsDir() {
+			return fullPath
+		}
+		// フォールバック: dirName/WorkingDir（clone未実行のmain用）
+		fallback := filepath.Join(dirName, svc.WorkingDir)
+		if info, err := os.Stat(fallback); err == nil && info.IsDir() {
+			return fallback
+		}
+		return fullPath
+	}
+
+	// WorkingDir未設定: wtName/dirName を優先
+	wtDir := filepath.Join(wtName, dirName)
 	if info, err := os.Stat(wtDir); err == nil && info.IsDir() {
 		return wtDir
+	}
+	// フォールバック: dirName直下（clone未実行のmain用）
+	if info, err := os.Stat(dirName); err == nil && info.IsDir() {
+		return dirName
 	}
 	return svc.WorkingDir
 }
@@ -527,7 +634,8 @@ func MergeEnv(env, envDynamic map[string]string) map[string]string {
 	return merged
 }
 
-// LoadAndValidateConfig は設定ファイルの読み込み・検証・変数展開をまとめて行う
+// LoadAndValidateConfig は設定ファイルの読み込み・検証をまとめて行う
+// 変数展開はオフセット決定後にNewOrchestratorWithWorktreeで実行される
 func LoadAndValidateConfig(cfgFile string) (*config.Config, error) {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
@@ -536,6 +644,5 @@ func LoadAndValidateConfig(cfgFile string) (*config.Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	config.ExpandVariables(cfg)
 	return cfg, nil
 }

@@ -9,6 +9,15 @@ type ServiceInfo struct {
 	Health       string `json:"health,omitempty"`
 	PID          int    `json:"pid,omitempty"`
 	RestartCount int    `json:"restart_count,omitempty"`
+	IsRepoOnly   bool   `json:"is_repo_only,omitempty"`
+	IsShared     bool   `json:"is_shared,omitempty"`
+}
+
+// WorktreeInfo はワークツリーの概要情報
+type WorktreeInfo struct {
+	Name     string `json:"name"`
+	Offset   int    `json:"offset"`
+	IsActive bool   `json:"is_active"`
 }
 
 // UpResult はサービス起動の結果
@@ -25,7 +34,7 @@ type DownResult struct {
 
 // StatusResult はサービス状態の結果
 type StatusResult struct {
-	Worktree string        `json:"worktree"`
-	Services []ServiceInfo `json:"services"`
+	Worktree  string         `json:"worktree"`
+	Services  []ServiceInfo  `json:"services"`
+	Worktrees []WorktreeInfo `json:"worktrees,omitempty"`
 }
-

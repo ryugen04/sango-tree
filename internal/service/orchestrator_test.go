@@ -85,6 +85,31 @@ func TestResolveWorkingDir(t *testing.T) {
 	}
 }
 
+func TestResolveWorkingDir_WithRepoName(t *testing.T) {
+	// repo_name + WorkingDir: 参照先のディレクトリを使う
+	svc := &config.Service{RepoName: "example-backend", WorkingDir: "subdir"}
+	dir := ResolveWorkingDir(svc, "main", "billing-api")
+	expected := "main/example-backend/subdir"
+	if dir != expected {
+		t.Errorf("expected %q, got %q", expected, dir)
+	}
+
+	// repo_nameなし + WorkingDir: 従来通りserviceNameを使う
+	svc2 := &config.Service{WorkingDir: "src"}
+	dir2 := ResolveWorkingDir(svc2, "main", "api")
+	expected2 := "main/api/src"
+	if dir2 != expected2 {
+		t.Errorf("expected %q, got %q", expected2, dir2)
+	}
+
+	// repo_nameあり + WorkingDir空 + ディレクトリ不在: 空文字列を返す
+	svc3 := &config.Service{RepoName: "example-backend"}
+	dir3 := ResolveWorkingDir(svc3, "/nonexistent-path", "billing-api")
+	if dir3 != "" {
+		t.Errorf("expected empty string for nonexistent dir, got %q", dir3)
+	}
+}
+
 func TestMergeEnv(t *testing.T) {
 	env := map[string]string{"A": "1", "B": "2"}
 	dynamic := map[string]string{"B": "3", "C": "4"}
