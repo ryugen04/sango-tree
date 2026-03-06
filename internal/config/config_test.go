@@ -184,6 +184,97 @@ func TestValidateUnknownDependency(t *testing.T) {
 	t.Logf("Expected error: %v", err)
 }
 
+func TestValidateRepoOnlyService(t *testing.T) {
+	// repoのみでcommandなしのサービスはバリデーション通過すること
+	cfg := &Config{
+		Name: "test",
+		Services: map[string]*Service{
+			"example-backend": {
+				Type: "process",
+				Repo: "git@github.com:example/example-backend.git",
+				// Commandなし → repo-onlyサービス
+			},
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("repo-only service should pass validation, got: %v", err)
+	}
+}
+
+func TestValidateRepoNameReference(t *testing.T) {
+	// repo_nameが存在しないサービスを参照するとエラー
+	cfg := &Config{
+		Name: "test",
+		Services: map[string]*Service{
+			"billing-api": {
+				Type:     "process",
+				Command:  "go run ./cmd/server",
+				RepoName: "nonexistent",
+			},
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate should fail for repo_name referencing nonexistent service")
+	}
+	t.Logf("Expected error: %v", err)
+}
+
+func TestValidateRepoNameReferenceValid(t *testing.T) {
+	// repo_nameが存在するサービスを参照する場合はOK
+	cfg := &Config{
+		Name: "test",
+		Services: map[string]*Service{
+			"example-backend": {
+				Type: "process",
+				Repo: "git@github.com:example/example-backend.git",
+			},
+			"billing-api": {
+				Type:     "process",
+				Command:  "go run ./cmd/server",
+				RepoName: "example-backend",
+			},
+		},
+	}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("valid repo_name reference should pass, got: %v", err)
+	}
+}
+
+func TestExpandVariablesWithEnvAndHealthcheckCommand(t *testing.T) {
+	cfg := &Config{
+		Name: "test",
+		Services: map[string]*Service{
+			"api": {
+				Type:    "process",
+				Port:    8080,
+				Command: "go run .",
+				Env: map[string]string{
+					"PORT": "${port}",
+				},
+				Healthcheck: &Healthcheck{
+					Command: "lsof -t -i :${port} -sTCP:LISTEN",
+				},
+			},
+		},
+	}
+
+	ExpandVariablesWithOffset(cfg, 100)
+
+	api := cfg.Services["api"]
+	if api.Env["PORT"] != "8180" {
+		t.Errorf("Env[PORT] = %q, want %q", api.Env["PORT"], "8180")
+	}
+	if api.Healthcheck.Command != "lsof -t -i :8180 -sTCP:LISTEN" {
+		t.Errorf("Healthcheck.Command = %q, want %q", api.Healthcheck.Command, "lsof -t -i :8180 -sTCP:LISTEN")
+	}
+}
+
 func TestExpandVariables(t *testing.T) {
 	cfg := &Config{
 		Name: "test",

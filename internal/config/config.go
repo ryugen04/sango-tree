@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -35,6 +36,21 @@ type WorktreeConfig struct {
 	DefaultBranch string        `yaml:"default_branch"`
 	Include       IncludeConfig `yaml:"include"`
 	Hooks         HooksConfig   `yaml:"hooks"`
+}
+
+// ResolveBaseDir はworktreeのベースディレクトリを返す
+// 未設定の場合はデフォルト "worktrees" を返す
+func (w *WorktreeConfig) ResolveBaseDir() string {
+	if w.BaseDir != "" {
+		return w.BaseDir
+	}
+	return "worktrees"
+}
+
+// WorktreeDir はworktree名からディレクトリパスを返す
+// 例: WorktreeDir("main") → "worktrees/main"
+func (w *WorktreeConfig) WorktreeDir(wtName string) string {
+	return filepath.Join(w.ResolveBaseDir(), wtName)
 }
 
 // IncludeConfig はworktree作成時のファイル配置設定
@@ -83,6 +99,7 @@ type Service struct {
 	MaxRestarts  int               `yaml:"max_restarts"`
 	Volumes      []string          `yaml:"volumes"`
 	Repo         string            `yaml:"repo"`
+	RepoName     string            `yaml:"repo_name"`
 	RepoPath     string            `yaml:"repo_path"`
 	RunOn        []string          `yaml:"run_on"`
 	Troubleshoot []TroubleshootCheck `yaml:"troubleshoot"`
@@ -231,9 +248,16 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("サービス %q: dockerタイプにはimageが必須です", name)
 		}
 
-		// process/scriptタイプの場合Commandが必須
-		if (svc.Type == "process" || svc.Type == "script") && svc.Command == "" {
+		// process/scriptタイプの場合Commandが必須（repoのみのサービスは除外）
+		if (svc.Type == "process" || svc.Type == "script") && svc.Command == "" && svc.Repo == "" {
 			return fmt.Errorf("サービス %q: %sタイプにはcommandが必須です", name, svc.Type)
+		}
+
+		// repo_nameの参照先が存在するか検証
+		if svc.RepoName != "" {
+			if _, exists := c.Services[svc.RepoName]; !exists {
+				return fmt.Errorf("サービス %q: repo_nameに未定義のサービス %q が指定されています", name, svc.RepoName)
+			}
 		}
 
 		// DependsOnに存在しないサービス名がないこと

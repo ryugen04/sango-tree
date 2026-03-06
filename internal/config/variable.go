@@ -25,6 +25,11 @@ func ExpandVariablesWithOffset(cfg *Config, offset int) {
 			svc.CommandArgs[i] = expandString(arg, resolver)
 		}
 
+		// Env を展開
+		for key, val := range svc.Env {
+			svc.Env[key] = expandString(val, resolver)
+		}
+
 		// EnvDynamic を展開
 		for key, val := range svc.EnvDynamic {
 			svc.EnvDynamic[key] = expandString(val, resolver)
@@ -33,6 +38,11 @@ func ExpandVariablesWithOffset(cfg *Config, offset int) {
 		// Healthcheck.URL を展開
 		if svc.Healthcheck != nil && svc.Healthcheck.URL != "" {
 			svc.Healthcheck.URL = expandString(svc.Healthcheck.URL, resolver)
+		}
+
+		// Healthcheck.Command を展開
+		if svc.Healthcheck != nil && svc.Healthcheck.Command != "" {
+			svc.Healthcheck.Command = expandString(svc.Healthcheck.Command, resolver)
 		}
 	}
 }
