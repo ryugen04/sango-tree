@@ -253,7 +253,7 @@ func TestExpandIncludes_Root(t *testing.T) {
 
 	services := []string{"api", "worker"}
 
-	result := ExpandIncludes(worktreeDir, services, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, nil)
 	if result.HasErrors() {
 		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
 	}
@@ -306,7 +306,7 @@ func TestExpandIncludes_PerService(t *testing.T) {
 	// dbはservicesに含まれない
 	services := []string{"api", "worker"}
 
-	result := ExpandIncludes(worktreeDir, services, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, nil)
 	if result.HasErrors() {
 		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
 	}
@@ -359,7 +359,7 @@ func TestExpandIncludes_RootAndPerService(t *testing.T) {
 
 	services := []string{"api", "worker"}
 
-	result := ExpandIncludes(worktreeDir, services, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, nil)
 	if result.HasErrors() {
 		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
 	}
@@ -398,7 +398,7 @@ func TestExpandIncludes_RequiredError(t *testing.T) {
 		},
 	}
 
-	result := ExpandIncludes(worktreeDir, []string{"api"}, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, nil)
 	if !result.HasErrors() {
 		t.Fatal("required=trueのエントリ失敗がErrorsに入っていない")
 	}
@@ -422,7 +422,7 @@ func TestExpandIncludes_OptionalWarning(t *testing.T) {
 		},
 	}
 
-	result := ExpandIncludes(worktreeDir, []string{"api"}, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, nil)
 	if result.HasErrors() {
 		t.Error("required=falseの失敗がErrorsに入ってしまった")
 	}
@@ -448,7 +448,7 @@ func TestExpandIncludes_PerServiceRequired(t *testing.T) {
 		},
 	}
 
-	result := ExpandIncludes(worktreeDir, []string{"api"}, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, nil)
 	if !result.HasErrors() {
 		t.Fatal("per_serviceのrequired=trueエントリ失敗がErrorsに入っていない")
 	}

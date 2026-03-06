@@ -33,16 +33,18 @@ func (r *ExpandResult) CriticalError() error {
 }
 
 // ExpandIncludes はworktree作成時にinclude設定に従ってファイルを配置する
-// worktreeDir: 対象worktreeのルートディレクトリ
+// projectRoot: プロジェクトルートディレクトリ（sourceの基準パス）
+// worktreeDir: 対象worktreeのルートディレクトリ（targetの基準パス）
 // services: このworktreeに含まれるサービス名リスト
 // include: IncludeConfig
 // vars: template展開用の変数マップ (例: {"port": "3000", "services.api.port": "8080"})
-func ExpandIncludes(worktreeDir string, services []string, include config.IncludeConfig, vars map[string]string) *ExpandResult {
+func ExpandIncludes(projectRoot, worktreeDir string, services []string, include config.IncludeConfig, vars map[string]string) *ExpandResult {
 	result := &ExpandResult{}
 
 	// rootエントリをworktreeルートに配置する
+	// source はプロジェクトルート基準、target はworktreeDir基準
 	for _, entry := range include.Root {
-		if err := processEntry(worktreeDir, worktreeDir, entry, vars); err != nil {
+		if err := processEntry(projectRoot, worktreeDir, entry, vars); err != nil {
 			wrapped := fmt.Errorf("root エントリ (source=%s): %w", entry.Source, err)
 			if entry.Required {
 				result.Errors = append(result.Errors, wrapped)
@@ -53,6 +55,7 @@ func ExpandIncludes(worktreeDir string, services []string, include config.Includ
 	}
 
 	// per_serviceエントリを該当サービスのみに配置する
+	// source はプロジェクトルート基準、target は worktreeDir/svc 基準
 	for svc, entries := range include.PerService {
 		// このworktreeに含まれるサービスか確認する
 		if !containsService(services, svc) {
@@ -60,7 +63,7 @@ func ExpandIncludes(worktreeDir string, services []string, include config.Includ
 		}
 		targetDir := filepath.Join(worktreeDir, svc)
 		for _, entry := range entries {
-			if err := processEntry(worktreeDir, targetDir, entry, vars); err != nil {
+			if err := processEntry(projectRoot, targetDir, entry, vars); err != nil {
 				wrapped := fmt.Errorf("per_service エントリ (service=%s, source=%s): %w", svc, entry.Source, err)
 				if entry.Required {
 					result.Errors = append(result.Errors, wrapped)
