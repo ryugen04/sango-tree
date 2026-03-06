@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// grove init で生成するテンプレート
-const groveYAMLTemplate = `name: my-project
+// sango init で生成するテンプレート
+const sangoYAMLTemplate = `name: my-project
 version: "1.0"
 
 services:
@@ -29,20 +29,20 @@ doctor:
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "grove.yaml のテンプレートを生成する",
+	Short: "sango.yaml のテンプレートを生成する",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path := "grove.yaml"
+		path := "sango.yaml"
 
 		// 既にファイルが存在する場合はエラー
 		if _, err := os.Stat(path); err == nil {
-			return fmt.Errorf("grove.yaml は既に存在します")
+			return fmt.Errorf("sango.yaml は既に存在します")
 		}
 
-		if err := os.WriteFile(path, []byte(groveYAMLTemplate), 0644); err != nil {
-			return fmt.Errorf("grove.yaml の作成に失敗: %w", err)
+		if err := os.WriteFile(path, []byte(sangoYAMLTemplate), 0644); err != nil {
+			return fmt.Errorf("sango.yaml の作成に失敗: %w", err)
 		}
 
-		fmt.Println("grove.yaml を作成しました")
+		fmt.Println("sango.yaml を作成しました")
 		return nil
 	},
 }

@@ -3,11 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
-	"github.com/ryugen04/grove/internal/process"
-	"github.com/ryugen04/grove/internal/worktree"
+	"github.com/ryugen04/sango-tree/internal/process"
+	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -20,9 +19,9 @@ var worktreeRemoveCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		branch := args[0]
-		groveDir := worktree.DefaultDir()
+		sangoDir := worktree.DefaultDir()
 
-		ws, err := worktree.Load(groveDir)
+		ws, err := worktree.Load(sangoDir)
 		if err != nil {
 			return fmt.Errorf("worktrees.jsonの読み込みに失敗: %w", err)
 		}
@@ -43,7 +42,7 @@ var worktreeRemoveCmd = &cobra.Command{
 		}
 
 		wtKey := worktree.ToKey(branch)
-		pm := process.NewManager(groveDir, wtKey)
+		pm := process.NewManager(sangoDir, wtKey)
 
 		// 実行中サービスのチェック
 		var running []string
@@ -60,20 +59,18 @@ var worktreeRemoveCmd = &cobra.Command{
 		// --force: 実行中サービスを停止
 		if len(running) > 0 {
 			for _, name := range running {
-				fmt.Printf("[grove] %s を強制停止中...\n", name)
+				fmt.Printf("[sango] %s を強制停止中...\n", name)
 				if err := pm.Stop(name); err != nil {
-					fmt.Printf("[grove] %s の停止に失敗: %v\n", name, err)
+					fmt.Printf("[sango] %s の停止に失敗: %v\n", name, err)
 				}
 			}
 		}
 
 		// pre_removeフック実行
-		for _, hook := range cfg.Worktree.Hooks.PreRemove {
-			fmt.Printf("[grove] pre_removeフック実行: %s\n", hook.Command)
-			c := exec.Command("sh", "-c", hook.Command)
-			c.Dir = branch
-			if out, err := c.CombinedOutput(); err != nil {
-				fmt.Printf("[grove] pre_removeフック警告: %v\n%s", err, out)
+		if len(cfg.Worktree.Hooks.PreRemove) > 0 {
+			fmt.Println("[sango] pre_removeフックを実行中...")
+			if err := worktree.RunHooks(cfg.Worktree.Hooks.PreRemove, branch, wt.Services); err != nil {
+				fmt.Printf("[sango] pre_removeフック警告: %v\n", err)
 			}
 		}
 
@@ -85,23 +82,23 @@ var worktreeRemoveCmd = &cobra.Command{
 			}
 
 			wtPath := filepath.Join(branch, name)
-			fmt.Printf("[grove] %s のワークツリーを削除中...\n", name)
-			if err := worktree.WorktreeRemove(groveDir, name, wtPath, wtRemoveForce); err != nil {
-				fmt.Printf("[grove] %s のワークツリー削除に失敗: %v\n", name, err)
+			fmt.Printf("[sango] %s のワークツリーを削除中...\n", name)
+			if err := worktree.WorktreeRemove(sangoDir, name, wtPath, wtRemoveForce); err != nil {
+				fmt.Printf("[sango] %s のワークツリー削除に失敗: %v\n", name, err)
 			}
 		}
 
 		// PIDディレクトリのクリーンアップ
-		pidDir := process.PIDDir(groveDir, wtKey)
+		pidDir := process.PIDDir(sangoDir, wtKey)
 		_ = os.RemoveAll(pidDir)
 
 		// worktrees.json更新
 		ws.RemoveWorktree(branch)
-		if err := ws.Save(groveDir); err != nil {
+		if err := ws.Save(sangoDir); err != nil {
 			return fmt.Errorf("worktrees.jsonの保存に失敗: %w", err)
 		}
 
-		fmt.Printf("[grove] ワークツリー %q を削除しました\n", branch)
+		fmt.Printf("[sango] ワークツリー %q を削除しました\n", branch)
 		return nil
 	},
 }

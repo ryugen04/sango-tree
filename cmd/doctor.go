@@ -5,7 +5,7 @@ import (
 	"os/exec"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/ryugen04/grove/internal/doctor"
+	"github.com/ryugen04/sango-tree/internal/doctor"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +40,7 @@ var doctorCmd = &cobra.Command{
 		results := doctor.Run(checks)
 
 		// ヘッダー出力
-		fmt.Println("Grove Doctor")
+		fmt.Println("Sango Doctor")
 		fmt.Println("============")
 		fmt.Println()
 

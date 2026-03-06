@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ryugen04/grove/internal/config"
-	"github.com/ryugen04/grove/internal/worktree"
+	"github.com/ryugen04/sango-tree/internal/config"
+	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -40,16 +40,16 @@ func init() {
 }
 
 func runWorktreeCreate(cfg *config.Config, branch string) error {
-	groveDir := worktree.DefaultDir()
+	sangoDir := worktree.DefaultDir()
 
 	// ロック取得
-	lock, err := worktree.AcquireLock(groveDir, "worktree-op")
+	lock, err := worktree.AcquireLock(sangoDir, "worktree-op")
 	if err != nil {
 		return fmt.Errorf("ロックの取得に失敗: %w", err)
 	}
 	defer lock.Release()
 
-	ws, err := worktree.Load(groveDir)
+	ws, err := worktree.Load(sangoDir)
 	if err != nil {
 		return fmt.Errorf("worktrees.jsonの読み込みに失敗: %w", err)
 	}
@@ -102,14 +102,14 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 		if err != nil {
 			return fmt.Errorf("ワークツリーパスの解決に失敗: %w", err)
 		}
-		fmt.Printf("[grove] %s のワークツリーを作成中... (branch: %s from %s)\n", name, branch, baseBranch)
+		fmt.Printf("[sango] %s のワークツリーを作成中... (branch: %s from %s)\n", name, branch, baseBranch)
 
-		if err := worktree.WorktreeAddNewBranch(groveDir, name, absWtPath, branch, baseBranch); err != nil {
+		if err := worktree.WorktreeAddNewBranch(sangoDir, name, absWtPath, branch, baseBranch); err != nil {
 			// ロールバック: 作成済みworktreeのみ削除
 			for _, e := range created {
-				fmt.Printf("[grove] ロールバック: %s を削除中...\n", e.serviceName)
-				if err := worktree.WorktreeRemove(groveDir, e.serviceName, e.path, true); err != nil {
-					fmt.Printf("[grove] ロールバック警告: %s の削除に失敗: %v\n", e.serviceName, err)
+				fmt.Printf("[sango] ロールバック: %s を削除中...\n", e.serviceName)
+				if err := worktree.WorktreeRemove(sangoDir, e.serviceName, e.path, true); err != nil {
+					fmt.Printf("[sango] ロールバック警告: %s の削除に失敗: %v\n", e.serviceName, err)
 				}
 			}
 			return fmt.Errorf("サービス %s のワークツリー作成に失敗: %w", name, err)
@@ -120,11 +120,22 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 	}
 
 	// include展開
-	if len(cfg.Worktree.Include.Common) > 0 || len(cfg.Worktree.Include.PerService) > 0 {
-		fmt.Println("[grove] includeファイルを展開中...")
+	if len(cfg.Worktree.Include.Root) > 0 || len(cfg.Worktree.Include.PerService) > 0 {
+		fmt.Println("[sango] includeファイルを展開中...")
 		vars := buildIncludeVars(cfg, offset)
-		if err := worktree.ExpandIncludes(branch, allServiceNames, cfg.Worktree.Include, vars); err != nil {
-			fmt.Printf("[grove] include展開で警告: %v\n", err)
+		result := worktree.ExpandIncludes(branch, allServiceNames, cfg.Worktree.Include, vars)
+		if result.HasErrors() {
+			// ロールバック実行
+			for _, e := range created {
+				fmt.Printf("[sango] ロールバック: %s を削除中...\n", e.serviceName)
+				if rbErr := worktree.WorktreeRemove(sangoDir, e.serviceName, e.path, true); rbErr != nil {
+					fmt.Printf("[sango] ロールバック警告: %s の削除に失敗: %v\n", e.serviceName, rbErr)
+				}
+			}
+			return fmt.Errorf("必須includeエントリの展開に失敗: %w", result.CriticalError())
+		}
+		if warning := result.WarningError(); warning != nil {
+			fmt.Printf("[sango] include展開で警告: %v\n", warning)
 		}
 	}
 
@@ -133,15 +144,23 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 		for _, name := range allServiceNames {
 			svc := cfg.Services[name]
 			if len(svc.Setup) > 0 {
-				fmt.Printf("[grove] %s のセットアップを実行中...\n", name)
+				fmt.Printf("[sango] %s のセットアップを実行中...\n", name)
 				for _, setupCmd := range svc.Setup {
 					c := exec.Command("sh", "-c", setupCmd)
 					c.Dir = filepath.Join(branch, name)
 					if out, err := c.CombinedOutput(); err != nil {
-						fmt.Printf("[grove] %s のセットアップ警告: %v\n%s", name, err, out)
+						fmt.Printf("[sango] %s のセットアップ警告: %v\n%s", name, err, out)
 					}
 				}
 			}
+		}
+	}
+
+	// post_createフック実行
+	if len(cfg.Worktree.Hooks.PostCreate) > 0 {
+		fmt.Println("[sango] post_createフックを実行中...")
+		if err := worktree.RunHooks(cfg.Worktree.Hooks.PostCreate, branch, allServiceNames); err != nil {
+			fmt.Printf("[sango] post_createフック警告: %v\n", err)
 		}
 	}
 
@@ -153,11 +172,11 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 		FromBranch: baseBranch,
 	})
 
-	if err := ws.Save(groveDir); err != nil {
+	if err := ws.Save(sangoDir); err != nil {
 		return fmt.Errorf("worktrees.jsonの保存に失敗: %w", err)
 	}
 
-	fmt.Printf("[grove] ワークツリー %q を作成しました (offset: %d)\n", branch, offset)
+	fmt.Printf("[sango] ワークツリー %q を作成しました (offset: %d)\n", branch, offset)
 	return nil
 }
 

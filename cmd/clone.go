@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ryugen04/grove/internal/worktree"
+	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -14,14 +14,14 @@ var cloneShallow bool
 var cloneCmd = &cobra.Command{
 	Use:   "clone",
 	Short: "リポジトリをクローンしてworktreeを初期化する",
-	Long:  "grove.yamlのrepoフィールドを持つ各サービスをbare cloneし、mainワークツリーを作成する",
+	Long:  "sango.yamlのrepoフィールドを持つ各サービスをbare cloneし、mainワークツリーを作成する",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
 
-		groveDir := worktree.DefaultDir()
+		sangoDir := worktree.DefaultDir()
 
 		// 各サービスのリポジトリをbare clone + worktree作成
 		var services []string
@@ -36,12 +36,12 @@ var cloneCmd = &cobra.Command{
 			// repo_pathが指定されている場合はbare cloneせず、
 			// 既存クローンからworktree addする想定（別途対応）
 			if svc.RepoPath != "" {
-				fmt.Printf("[grove] %s: repo_pathが指定されています。既存クローンを使用します\n", name)
+				fmt.Printf("[sango] %s: repo_pathが指定されています。既存クローンを使用します\n", name)
 				continue
 			}
 
-			fmt.Printf("[grove] %s をクローン中... (%s)\n", name, svc.Repo)
-			if err := worktree.BareClone(groveDir, name, svc.Repo, cloneShallow); err != nil {
+			fmt.Printf("[sango] %s をクローン中... (%s)\n", name, svc.Repo)
+			if err := worktree.BareClone(sangoDir, name, svc.Repo, cloneShallow); err != nil {
 				return fmt.Errorf("サービス %s のクローンに失敗: %w", name, err)
 			}
 
@@ -55,8 +55,8 @@ var cloneCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("ワークツリーパスの解決に失敗: %w", err)
 			}
-			fmt.Printf("[grove] %s のワークツリーを作成中... (branch: %s)\n", name, defaultBranch)
-			if err := worktree.WorktreeAdd(groveDir, name, wtPath, defaultBranch); err != nil {
+			fmt.Printf("[sango] %s のワークツリーを作成中... (branch: %s)\n", name, defaultBranch)
+			if err := worktree.WorktreeAdd(sangoDir, name, wtPath, defaultBranch); err != nil {
 				return fmt.Errorf("サービス %s のワークツリー作成に失敗: %w", name, err)
 			}
 		}
@@ -89,11 +89,11 @@ var cloneCmd = &cobra.Command{
 			}
 		}
 
-		if err := ws.Save(groveDir); err != nil {
+		if err := ws.Save(sangoDir); err != nil {
 			return fmt.Errorf("worktrees.jsonの保存に失敗: %w", err)
 		}
 
-		fmt.Println("[grove] クローン完了")
+		fmt.Println("[sango] クローン完了")
 		return nil
 	},
 }

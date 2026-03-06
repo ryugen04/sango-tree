@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/ryugen04/grove/internal/process"
-	"github.com/ryugen04/grove/internal/worktree"
+	"github.com/ryugen04/sango-tree/internal/process"
+	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -15,8 +15,8 @@ var worktreeStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "全ワークツリーの状態を横断表示する",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		groveDir := worktree.DefaultDir()
-		ws, err := worktree.Load(groveDir)
+		sangoDir := worktree.DefaultDir()
+		ws, err := worktree.Load(sangoDir)
 		if err != nil {
 			return fmt.Errorf("worktrees.jsonの読み込みに失敗: %w", err)
 		}
@@ -68,7 +68,7 @@ var worktreeStatusCmd = &cobra.Command{
 					pidWorktree = "shared"
 				}
 
-				if pid, err := process.ReadPID(groveDir, pidWorktree, name); err == nil {
+				if pid, err := process.ReadPID(sangoDir, pidWorktree, name); err == nil {
 					if process.IsProcessRunning(pid) {
 						status = "running"
 						pidStr = strconv.Itoa(pid)
@@ -102,7 +102,7 @@ var worktreeStatusCmd = &cobra.Command{
 			for name, ss := range ws.SharedServices {
 				status := "stopped"
 				pidStr := "-"
-				if pid, err := process.ReadPID(groveDir, "shared", name); err == nil {
+				if pid, err := process.ReadPID(sangoDir, "shared", name); err == nil {
 					if process.IsProcessRunning(pid) {
 						status = "running"
 						pidStr = strconv.Itoa(pid)

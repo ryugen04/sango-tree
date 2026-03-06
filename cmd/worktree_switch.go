@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/ryugen04/grove/internal/process"
-	"github.com/ryugen04/grove/internal/worktree"
+	"github.com/ryugen04/sango-tree/internal/process"
+	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -20,9 +20,9 @@ var worktreeSwitchCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		branch := args[0]
-		groveDir := worktree.DefaultDir()
+		sangoDir := worktree.DefaultDir()
 
-		ws, err := worktree.Load(groveDir)
+		ws, err := worktree.Load(sangoDir)
 		if err != nil {
 			return fmt.Errorf("worktrees.jsonの読み込みに失敗: %w", err)
 		}
@@ -33,7 +33,7 @@ var worktreeSwitchCmd = &cobra.Command{
 		}
 
 		if ws.Active == branch {
-			fmt.Printf("[grove] 既にワークツリー %q がアクティブです\n", branch)
+			fmt.Printf("[sango] 既にワークツリー %q がアクティブです\n", branch)
 			return nil
 		}
 
@@ -47,7 +47,7 @@ var worktreeSwitchCmd = &cobra.Command{
 			}
 
 			oldKey := worktree.ToKey(oldActive)
-			pm := process.NewManager(groveDir, oldKey)
+			pm := process.NewManager(sangoDir, oldKey)
 
 			d := buildDAG(cfg)
 			order, err := d.Reverse()
@@ -63,20 +63,20 @@ var worktreeSwitchCmd = &cobra.Command{
 				if !pm.IsRunning(name) {
 					continue
 				}
-				fmt.Printf("[grove] %s を停止中... (worktree: %s)\n", name, oldActive)
+				fmt.Printf("[sango] %s を停止中... (worktree: %s)\n", name, oldActive)
 				if err := pm.Stop(name); err != nil {
-					fmt.Printf("[grove] %s の停止に失敗: %v\n", name, err)
+					fmt.Printf("[sango] %s の停止に失敗: %v\n", name, err)
 				}
 			}
 		}
 
 		// active切り替え
 		ws.SetActive(branch)
-		if err := ws.Save(groveDir); err != nil {
+		if err := ws.Save(sangoDir); err != nil {
 			return fmt.Errorf("worktrees.jsonの保存に失敗: %w", err)
 		}
 
-		fmt.Printf("[grove] アクティブワークツリーを %q に切り替えました\n", branch)
+		fmt.Printf("[sango] アクティブワークツリーを %q に切り替えました\n", branch)
 
 		// --start: 新worktreeのサービスを起動
 		if wtSwitchStart {
@@ -84,7 +84,7 @@ var worktreeSwitchCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			fmt.Printf("[grove] %s のサービスを起動中...\n", branch)
+			fmt.Printf("[sango] %s のサービスを起動中...\n", branch)
 			return runUp(cfg, nil, "")
 		}
 

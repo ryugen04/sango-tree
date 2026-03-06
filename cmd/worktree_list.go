@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/ryugen04/grove/internal/worktree"
+	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -14,14 +14,14 @@ var worktreeListCmd = &cobra.Command{
 	Short: "ワークツリー一覧を表示する",
 	Aliases: []string{"ls"},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		groveDir := worktree.DefaultDir()
-		ws, err := worktree.Load(groveDir)
+		sangoDir := worktree.DefaultDir()
+		ws, err := worktree.Load(sangoDir)
 		if err != nil {
 			return fmt.Errorf("worktrees.jsonの読み込みに失敗: %w", err)
 		}
 
 		if len(ws.Worktrees) == 0 {
-			fmt.Println("ワークツリーがありません。grove clone を実行してください。")
+			fmt.Println("ワークツリーがありません。sango clone を実行してください。")
 			return nil
 		}
 

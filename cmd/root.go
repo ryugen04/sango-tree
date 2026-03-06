@@ -1,7 +1,9 @@
 package cmd
 
 import (
-	"github.com/ryugen04/grove/internal/worktree"
+	"github.com/ryugen04/sango-tree/internal/config"
+	"github.com/ryugen04/sango-tree/internal/dag"
+	"github.com/ryugen04/sango-tree/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -9,12 +11,12 @@ var cfgFile string
 var worktreeFlag string
 
 var rootCmd = &cobra.Command{
-	Use:   "grove",
+	Use:   "sango",
 	Short: "ポリレポ開発オーケストレーター",
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "grove.yaml", "設定ファイルパス")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "sango.yaml", "設定ファイルパス")
 	rootCmd.PersistentFlags().StringVar(&worktreeFlag, "worktree", "", "ワークツリー名（省略時はアクティブ）")
 }
 
@@ -23,20 +25,17 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
-// resolveActiveWorktree は使用するworktree名を解決する
-// --worktreeフラグ指定時はそれを使い、未指定時はworktrees.jsonのactiveを返す
-// worktrees.jsonが存在しない場合は"main"を返す
-func resolveActiveWorktree(groveDir string) string {
-	if worktreeFlag != "" {
-		return worktreeFlag
-	}
+// loadConfig は設定ファイルの読み込み・検証・変数展開をまとめて行う
+func loadConfig() (*config.Config, error) {
+	return service.LoadAndValidateConfig(cfgFile)
+}
 
-	ws, err := worktree.Load(groveDir)
-	if err != nil {
-		return "main"
-	}
-	if ws.Active == "" {
-		return "main"
-	}
-	return ws.Active
+// resolveActiveWorktree は使用するworktree名を解決する
+func resolveActiveWorktree(sangoDir string) string {
+	return service.ResolveActiveWorktree(sangoDir, worktreeFlag)
+}
+
+// buildDAG は設定からDAGを構築する
+func buildDAG(cfg *config.Config) *dag.DAG {
+	return service.BuildDAG(cfg)
 }
