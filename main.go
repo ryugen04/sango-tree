@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/ryugen04/grove/cmd"
+	"github.com/ryugen04/sango-tree/cmd"
 )
 
 func main() {
