@@ -2,8 +2,10 @@ package worktree
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // BareRepoDir はベアリポジトリのディレクトリパスを返す
@@ -56,6 +58,70 @@ func WorktreeAddNewBranch(sangoDir, name, worktreePath, newBranch, baseBranch st
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git worktree add -b 失敗 (%s, newBranch=%s): %w\n%s", name, newBranch, err, out)
+	}
+	return nil
+}
+
+// FetchOrigin はベアリポジトリで git fetch origin を実行する
+func FetchOrigin(bareDir string) error {
+	cmd := exec.Command("git", "fetch", "origin")
+	cmd.Dir = bareDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// HasUncommittedChanges はworktreeディレクトリに未コミット変更があるか確認する
+func HasUncommittedChanges(dir string) (bool, error) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("git status 失敗 (%s): %w", dir, err)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
+}
+
+// GitStash はworktreeディレクトリで git stash を実行する
+func GitStash(dir string) error {
+	cmd := exec.Command("git", "stash")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git stash 失敗 (%s): %w\n%s", dir, err, out)
+	}
+	return nil
+}
+
+// GitStashPop はworktreeディレクトリで git stash pop を実行する
+func GitStashPop(dir string) error {
+	cmd := exec.Command("git", "stash", "pop")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git stash pop 失敗 (%s): %w\n%s", dir, err, out)
+	}
+	return nil
+}
+
+// GitRebase はworktreeディレクトリで git rebase origin/<baseBranch> を実行する
+func GitRebase(dir, baseBranch string) error {
+	cmd := exec.Command("git", "rebase", "origin/"+baseBranch)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git rebase 失敗 (%s, base=%s): %w\n%s", dir, baseBranch, err, out)
+	}
+	return nil
+}
+
+// GitRebaseAbort はworktreeディレクトリで git rebase --abort を実行する
+func GitRebaseAbort(dir string) error {
+	cmd := exec.Command("git", "rebase", "--abort")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git rebase --abort 失敗 (%s): %w\n%s", dir, err, out)
 	}
 	return nil
 }

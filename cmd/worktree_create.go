@@ -109,6 +109,13 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 		if err != nil {
 			return fmt.Errorf("ワークツリーパスの解決に失敗: %w", err)
 		}
+		// ベアリポジトリで最新を取得
+		bareDir := worktree.BareRepoDir(sangoDir, name)
+		fmt.Printf("[sango] Fetching latest changes for %s...\n", name)
+		if err := worktree.FetchOrigin(bareDir); err != nil {
+			return fmt.Errorf("サービス %s の git fetch に失敗: %w", name, err)
+		}
+
 		fmt.Printf("[sango] %s のワークツリーを作成中... (branch: %s from %s)\n", name, branch, baseBranch)
 
 		// まず新規ブランチ作成を試み、既存ブランチなら既存ブランチでworktree追加
