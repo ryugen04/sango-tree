@@ -11,6 +11,7 @@ type ServiceInfo struct {
 	RestartCount int    `json:"restart_count,omitempty"`
 	IsRepoOnly   bool   `json:"is_repo_only,omitempty"`
 	IsShared     bool   `json:"is_shared,omitempty"`
+	OpenURL      string `json:"open_url,omitempty"`
 }
 
 // WorktreeInfo はワークツリーの概要情報

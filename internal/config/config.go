@@ -104,6 +104,7 @@ type Service struct {
 	RunOn        []string          `yaml:"run_on"`
 	Troubleshoot []TroubleshootCheck `yaml:"troubleshoot"`
 	Runbook      []RunbookEntry      `yaml:"runbook"`
+	OpenURL      string              `yaml:"open_url"`
 }
 
 // Healthcheck はヘルスチェック設定

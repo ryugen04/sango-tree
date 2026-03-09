@@ -48,6 +48,9 @@ func runUp(cfg *config.Config, args []string, profile string) error {
 				fmt.Printf("[sango] %s を起動しました (PID: %d, Port: %d)\n", s.Name, s.PID, s.Port)
 			}
 		}
+		if s.OpenURL != "" {
+			fmt.Printf("[sango] URL: %s\n", s.OpenURL)
+		}
 	}
 	for _, e := range result.Errors {
 		fmt.Printf("[sango] エラー: %s\n", e)

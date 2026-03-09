@@ -53,6 +53,11 @@ func ExpandVariablesWithOffset(cfg *Config, offset int, worktreeServices ...[]st
 		if svc.Healthcheck != nil && svc.Healthcheck.Command != "" {
 			svc.Healthcheck.Command = expandString(svc.Healthcheck.Command, resolver)
 		}
+
+		// OpenURL を展開
+		if svc.OpenURL != "" {
+			svc.OpenURL = expandString(svc.OpenURL, resolver)
+		}
 	}
 }
 

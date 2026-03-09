@@ -222,11 +222,12 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 				continue
 			}
 			result.Started = append(result.Started, ServiceInfo{
-				Name:   name,
-				Type:   svc.Type,
-				Port:   resolvedPort,
-				Status: "started",
-				PID:    pid,
+				Name:    name,
+				Type:    svc.Type,
+				Port:    resolvedPort,
+				Status:  "started",
+				PID:     pid,
+				OpenURL: svc.OpenURL,
 			})
 
 		case "script":
