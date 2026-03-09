@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -50,4 +51,45 @@ func RemovePID(sangoDir, worktree, service string) error {
 func IsProcessRunning(pid int) bool {
 	err := syscall.Kill(pid, 0)
 	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// FindPIDOwner は全worktreeのPIDファイルを走査し、指定PIDの所有者を特定する
+// sangoDir: .sangoディレクトリのパス
+// targetPID: 検索対象のPID
+// 戻り値: worktree名, service名, 見つかったか
+func FindPIDOwner(sangoDir string, targetPID int) (worktreeName string, serviceName string, found bool) {
+	pidsDir := filepath.Join(sangoDir, "pids")
+	entries, err := os.ReadDir(pidsDir)
+	if err != nil {
+		return "", "", false
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		wtName := entry.Name()
+		wtDir := filepath.Join(pidsDir, wtName)
+		pidFiles, err := os.ReadDir(wtDir)
+		if err != nil {
+			continue
+		}
+		for _, pidFile := range pidFiles {
+			if pidFile.IsDir() {
+				continue
+			}
+			svcName := strings.TrimSuffix(pidFile.Name(), ".pid")
+			if svcName == pidFile.Name() {
+				continue // .pid拡張子でないファイルはスキップ
+			}
+			pid, err := ReadPID(sangoDir, wtName, svcName)
+			if err != nil {
+				continue
+			}
+			if pid == targetPID {
+				return wtName, svcName, true
+			}
+		}
+	}
+	return "", "", false
 }

@@ -3,6 +3,9 @@ package port
 import (
 	"fmt"
 	"net"
+	"os/exec"
+	"strconv"
+	"strings"
 )
 
 // Manager はポートの割り当てと衝突チェックを管理する
@@ -101,4 +104,26 @@ func ResolveAllPorts(services map[string]ServicePortInfo, offset int) map[string
 		result[name] = ResolvePort(svc.Port, offset, svc.Shared)
 	}
 	return result
+}
+
+// GetPortHolder はポートを占有しているプロセスのPIDを返す
+// lsof -t -i :PORT -sTCP:LISTEN を実行し、LISTENしているPIDを取得する
+// ポートが使用されていない場合は 0, nil を返す
+func GetPortHolder(port int) (int, error) {
+	out, err := exec.Command("lsof", "-t", "-i", fmt.Sprintf(":%d", port), "-sTCP:LISTEN").Output()
+	if err != nil {
+		// lsofがエラーの場合、ポートは未使用（プロセスなし）
+		return 0, nil
+	}
+	line := strings.TrimSpace(string(out))
+	if line == "" {
+		return 0, nil
+	}
+	// 複数行の場合は最初の行を使用
+	lines := strings.Split(line, "\n")
+	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
+	if err != nil {
+		return 0, fmt.Errorf("lsof出力のパースに失敗: %w", err)
+	}
+	return pid, nil
 }

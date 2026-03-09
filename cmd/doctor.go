@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ryugen04/sango-tree/internal/doctor"
+	"github.com/ryugen04/sango-tree/internal/service"
+	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -38,6 +40,24 @@ var doctorCmd = &cobra.Command{
 		}
 
 		results := doctor.Run(checks)
+
+		// ポート競合チェック（組み込み）
+		sangoDir := worktree.DefaultDir()
+		wtName := service.ResolveActiveWorktree(sangoDir, worktreeFlag)
+		orch, orchErr := service.NewOrchestratorWithWorktree(cfg, cfgFile, worktreeFlag)
+		if orchErr == nil {
+			ports := orch.ResolveServicePorts()
+			portResults := doctor.CheckPortConflicts(ports, sangoDir)
+			if len(portResults) > 0 {
+				results = append(results, portResults...)
+			}
+		} else {
+			results = append(results, doctor.CheckResult{
+				Name:    fmt.Sprintf("ポート競合チェック (worktree: %s)", wtName),
+				Status:  doctor.StatusWarn,
+				Message: fmt.Sprintf("worktree情報の取得に失敗: %v", orchErr),
+			})
+		}
 
 		// ヘッダー出力
 		fmt.Println("Sango Doctor")

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"syscall"
 
 	"github.com/rs/zerolog/log"
 	"github.com/ryugen04/sango-tree/internal/config"
@@ -78,6 +79,17 @@ func ResolveActiveWorktree(sangoDir, worktreeFlag string) string {
 		return "main"
 	}
 	return ws.Active
+}
+
+// ResolveServicePorts は全サービスのポートを解決したマップを返す
+func (o *Orchestrator) ResolveServicePorts() map[string]int {
+	ports := make(map[string]int)
+	for name, svc := range o.cfg.Services {
+		if svc.Port > 0 {
+			ports[name] = port.ResolvePort(svc.Port, o.offset, svc.Shared)
+		}
+	}
+	return ports
 }
 
 // Up はサービスを起動する
@@ -175,6 +187,35 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 				Status: "already_running",
 			})
 			continue
+		}
+
+		// ポート競合チェック: 他worktreeの残存プロセスを検出・kill
+		if resolvedPort > 0 {
+			if holderPID, err := port.GetPortHolder(resolvedPort); err == nil && holderPID > 0 {
+				wtOwner, svcOwner, found := process.FindPIDOwner(o.sangoDir, holderPID)
+				if found {
+					log.Warn().
+						Str("service", name).
+						Int("port", resolvedPort).
+						Int("pid", holderPID).
+						Str("owner_worktree", wtOwner).
+						Str("owner_service", svcOwner).
+						Msg("ポート競合: 他worktreeの残存プロセスを検出、killします")
+				} else {
+					log.Warn().
+						Str("service", name).
+						Int("port", resolvedPort).
+						Int("pid", holderPID).
+						Msg("ポート競合: 孤児プロセスを検出、killします")
+				}
+				if err := syscall.Kill(holderPID, syscall.SIGKILL); err != nil {
+					log.Warn().Err(err).Int("pid", holderPID).Msg("プロセスのkillに失敗")
+				}
+				// PIDファイルのクリーンアップ
+				if found {
+					_ = process.RemovePID(o.sangoDir, wtOwner, svcOwner)
+				}
+			}
 		}
 
 		workingDir := ResolveWorkingDir(svc, o.wtDir, name)
@@ -474,9 +515,9 @@ func (o *Orchestrator) Status() (*StatusResult, error) {
 			health = state.HealthStatus
 		}
 
-		// healthcheckが定義されていてhealthy状態ならrunningとする
+		// プロセスが停止しているのにhealthがhealthyのままの場合はstaleとしてリセット
 		if status == "stopped" && health == "healthy" {
-			status = "running"
+			health = ""
 		}
 
 		// repo-onlyサービス判定: repoあり + commandなし
