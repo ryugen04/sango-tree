@@ -93,8 +93,11 @@ var statusCmd = &cobra.Command{
 		// サーバー一覧
 		wtLabel := result.Worktree
 		for _, wt := range result.Worktrees {
-			if wt.IsActive && wt.Offset > 0 {
-				wtLabel = fmt.Sprintf("%s, offset:%d", wt.Name, wt.Offset)
+			if wt.Name == result.Worktree {
+				if wt.Offset > 0 {
+					wtLabel = fmt.Sprintf("%s, offset:%d", wt.Name, wt.Offset)
+				}
+				break
 			}
 		}
 		fmt.Println(bold.Render(fmt.Sprintf("Services (worktree: %s)", wtLabel)))
