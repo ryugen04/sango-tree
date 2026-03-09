@@ -48,7 +48,7 @@ var worktreeVerifyCmd = &cobra.Command{
 		}
 
 		// 変数マップを構築
-		vars := buildIncludeVars(cfg, wt.Offset)
+		vars := buildIncludeVars(cfg, wt.Offset, wt.Services)
 
 		// 検証実行
 		results := worktree.VerifyIncludes(branch, wt.Services, cfg.Worktree.Include, vars)

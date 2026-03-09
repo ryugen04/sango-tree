@@ -29,7 +29,23 @@ type SharedService struct {
 }
 
 // DefaultDir は.sangoディレクトリのパスを返す
+// カレントディレクトリから親を遡り、worktrees.jsonを含む.sangoディレクトリを探索する
 func DefaultDir() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ".sango"
+	}
+	for {
+		candidate := filepath.Join(dir, ".sango")
+		if _, err := os.Stat(filepath.Join(candidate, stateFile)); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
 	return ".sango"
 }
 

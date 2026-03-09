@@ -133,7 +133,7 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 	// include展開
 	if len(cfg.Worktree.Include.Root) > 0 || len(cfg.Worktree.Include.PerService) > 0 {
 		fmt.Println("[sango] includeファイルを展開中...")
-		vars := buildIncludeVars(cfg, offset)
+		vars := buildIncludeVars(cfg, offset, allServiceNames)
 		// sourceはプロジェクトルート（cwd）基準、targetはworktreeDir基準
 		projectRoot, _ := os.Getwd()
 		result := worktree.ExpandIncludes(projectRoot, cfg.Worktree.WorktreeDir(branch), allServiceNames, cfg.Worktree.Include, vars)
@@ -275,6 +275,11 @@ func resolveWorktreeServices(cfg *config.Config, servicesFlag string) ([]string,
 		return strings.Split(servicesFlag, ","), nil
 	}
 
+	// 非インタラクティブ環境ではエラーにする
+	if !isTerminal() {
+		return nil, fmt.Errorf("非インタラクティブ環境では --services フラグを指定してください")
+	}
+
 	// インタラクティブにリポジトリを選択
 	repos := collectRepos(cfg)
 	if len(repos) == 0 {
@@ -320,14 +325,29 @@ func resolveWorktreeServices(cfg *config.Config, servicesFlag string) ([]string,
 }
 
 // buildIncludeVars はinclude/template展開用の変数マップを構築する
-func buildIncludeVars(cfg *config.Config, offset int) map[string]string {
+// worktreeServicesに含まれないサービスはoffset=0（develop）のポートを使う
+func buildIncludeVars(cfg *config.Config, offset int, worktreeServices []string) map[string]string {
+	wtSet := make(map[string]bool, len(worktreeServices))
+	for _, s := range worktreeServices {
+		wtSet[s] = true
+	}
+
 	vars := make(map[string]string)
 	for name, svc := range cfg.Services {
 		resolvedPort := svc.Port
-		if !svc.Shared {
+		if !svc.Shared && wtSet[name] {
 			resolvedPort += offset
 		}
 		vars[fmt.Sprintf("services.%s.port", name)] = fmt.Sprintf("%d", resolvedPort)
 	}
 	return vars
+}
+
+// isTerminal は標準入力がターミナルかどうかを判定する
+func isTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
