@@ -16,9 +16,18 @@ func ExpandVariables(cfg *Config) {
 }
 
 // ExpandVariablesWithOffset はポートオフセットを考慮して変数参照を展開する
-func ExpandVariablesWithOffset(cfg *Config, offset int) {
+// worktreeServicesが指定された場合、含まれないサービスにはoffset=0を適用する
+func ExpandVariablesWithOffset(cfg *Config, offset int, worktreeServices ...[]string) {
+	var wtSet map[string]bool
+	if len(worktreeServices) > 0 && worktreeServices[0] != nil {
+		wtSet = make(map[string]bool, len(worktreeServices[0]))
+		for _, s := range worktreeServices[0] {
+			wtSet[s] = true
+		}
+	}
+
 	for name, svc := range cfg.Services {
-		resolver := buildResolverWithOffset(cfg, name, offset)
+		resolver := buildResolverWithOffset(cfg, name, offset, wtSet)
 
 		// CommandArgs を展開
 		for i, arg := range svc.CommandArgs {
@@ -48,13 +57,26 @@ func ExpandVariablesWithOffset(cfg *Config, offset int) {
 }
 
 // buildResolverWithOffset はオフセットを考慮した変数リゾルバを生成する
-func buildResolverWithOffset(cfg *Config, serviceName string, offset int) func(string) string {
+// wtSetが非nilの場合、含まれるサービスのみにoffsetを適用する
+func buildResolverWithOffset(cfg *Config, serviceName string, offset int, wtSet map[string]bool) func(string) string {
+	// サービスにオフセットを適用すべきか判定する
+	shouldApplyOffset := func(svcName string, svc *Service) bool {
+		if svc.Shared {
+			return false
+		}
+		// wtSetが未指定ならば全サービスにoffset適用（従来動作）
+		if wtSet == nil {
+			return true
+		}
+		return wtSet[svcName]
+	}
+
 	return func(varName string) string {
 		// ${port} → 自サービスのPort（オフセット適用）
 		if varName == "port" {
 			svc := cfg.Services[serviceName]
 			p := svc.Port
-			if !svc.Shared {
+			if shouldApplyOffset(serviceName, svc) {
 				p += offset
 			}
 			return fmt.Sprintf("%d", p)
@@ -67,7 +89,7 @@ func buildResolverWithOffset(cfg *Config, serviceName string, offset int) func(s
 				targetName := parts[1]
 				if target, ok := cfg.Services[targetName]; ok {
 					p := target.Port
-					if !target.Shared {
+					if shouldApplyOffset(targetName, target) {
 						p += offset
 					}
 					return fmt.Sprintf("%d", p)

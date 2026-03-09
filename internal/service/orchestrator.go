@@ -45,12 +45,14 @@ func NewOrchestratorWithWorktree(cfg *config.Config, cfgFile, worktreeFlag strin
 		return nil, fmt.Errorf("worktrees.jsonの読み込みに失敗: %w", err)
 	}
 	offset := 0
+	var wtServices []string
 	if wt, ok := ws.Worktrees[wtName]; ok {
 		offset = wt.Offset
+		wtServices = wt.Services
 	}
 
-	// オフセット決定後に変数展開を実行
-	config.ExpandVariablesWithOffset(cfg, offset)
+	// オフセット決定後に変数展開を実行（パーシャルワークツリー対応）
+	config.ExpandVariablesWithOffset(cfg, offset, wtServices)
 
 	return &Orchestrator{
 		cfg:      cfg,
