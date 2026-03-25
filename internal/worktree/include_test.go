@@ -52,7 +52,7 @@ func TestProcessEntry_Copy(t *testing.T) {
 		Strategy: "copy",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, nil); err != nil {
+	if err := processEntry(baseDir, targetDir, entry, make(map[string]string), t.TempDir()); err != nil {
 		t.Fatalf("processEntry に失敗: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestProcessEntry_Symlink(t *testing.T) {
 		Strategy: "symlink",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, nil); err != nil {
+	if err := processEntry(baseDir, targetDir, entry, make(map[string]string), t.TempDir()); err != nil {
 		t.Fatalf("processEntry に失敗: %v", err)
 	}
 
@@ -125,7 +125,7 @@ func TestProcessEntry_SymlinkDir(t *testing.T) {
 		Strategy: "symlink",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, nil); err != nil {
+	if err := processEntry(baseDir, targetDir, entry, make(map[string]string), t.TempDir()); err != nil {
 		t.Fatalf("processEntry に失敗: %v", err)
 	}
 
@@ -161,7 +161,7 @@ func TestProcessEntry_CopyDir_Error(t *testing.T) {
 		Strategy: "copy",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, nil); err == nil {
+	if err := processEntry(baseDir, targetDir, entry, make(map[string]string), t.TempDir()); err == nil {
 		t.Error("ディレクトリにcopy指定でエラーが返らなかった")
 	}
 }
@@ -179,7 +179,7 @@ func TestProcessEntry_TemplateDir_Error(t *testing.T) {
 		Strategy: "template",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, nil); err == nil {
+	if err := processEntry(baseDir, targetDir, entry, make(map[string]string), t.TempDir()); err == nil {
 		t.Error("ディレクトリにtemplate指定でエラーが返らなかった")
 	}
 }
@@ -204,7 +204,7 @@ func TestProcessEntry_Template(t *testing.T) {
 		"services.api.port": "8080",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, vars); err != nil {
+	if err := processEntry(baseDir, targetDir, entry, vars, t.TempDir()); err != nil {
 		t.Fatalf("processEntry に失敗: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func TestProcessEntry_UnknownStrategy(t *testing.T) {
 		Strategy: "invalid",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, nil); err == nil {
+	if err := processEntry(baseDir, targetDir, entry, make(map[string]string), t.TempDir()); err == nil {
 		t.Error("未知のstrategyでエラーが返らなかった")
 	}
 }
@@ -253,7 +253,7 @@ func TestExpandIncludes_Root(t *testing.T) {
 
 	services := []string{"api", "worker"}
 
-	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, make(map[string]string), t.TempDir())
 	if result.HasErrors() {
 		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
 	}
@@ -306,7 +306,7 @@ func TestExpandIncludes_PerService(t *testing.T) {
 	// dbはservicesに含まれない
 	services := []string{"api", "worker"}
 
-	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, make(map[string]string), t.TempDir())
 	if result.HasErrors() {
 		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
 	}
@@ -359,7 +359,7 @@ func TestExpandIncludes_RootAndPerService(t *testing.T) {
 
 	services := []string{"api", "worker"}
 
-	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, services, include, make(map[string]string), t.TempDir())
 	if result.HasErrors() {
 		t.Fatalf("ExpandIncludes でエラー: %v", result.CriticalError())
 	}
@@ -398,7 +398,7 @@ func TestExpandIncludes_RequiredError(t *testing.T) {
 		},
 	}
 
-	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, make(map[string]string), t.TempDir())
 	if !result.HasErrors() {
 		t.Fatal("required=trueのエントリ失敗がErrorsに入っていない")
 	}
@@ -422,7 +422,7 @@ func TestExpandIncludes_OptionalWarning(t *testing.T) {
 		},
 	}
 
-	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, make(map[string]string), t.TempDir())
 	if result.HasErrors() {
 		t.Error("required=falseの失敗がErrorsに入ってしまった")
 	}
@@ -448,7 +448,7 @@ func TestExpandIncludes_PerServiceRequired(t *testing.T) {
 		},
 	}
 
-	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, nil)
+	result := ExpandIncludes(worktreeDir, worktreeDir, []string{"api"}, include, make(map[string]string), t.TempDir())
 	if !result.HasErrors() {
 		t.Fatal("per_serviceのrequired=trueエントリ失敗がErrorsに入っていない")
 	}
@@ -473,7 +473,7 @@ func TestProcessEntry_SymlinkOverwrite(t *testing.T) {
 		Strategy: "symlink",
 	}
 
-	if err := processEntry(baseDir, targetDir, entry, nil); err != nil {
+	if err := processEntry(baseDir, targetDir, entry, make(map[string]string), t.TempDir()); err != nil {
 		t.Fatalf("既存リンクの上書きに失敗: %v", err)
 	}
 

@@ -1,6 +1,8 @@
 package worktree
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -38,13 +40,14 @@ func (r *ExpandResult) CriticalError() error {
 // services: このworktreeに含まれるサービス名リスト
 // include: IncludeConfig
 // vars: template展開用の変数マップ (例: {"port": "3000", "services.api.port": "8080"})
-func ExpandIncludes(projectRoot, worktreeDir string, services []string, include config.IncludeConfig, vars map[string]string) *ExpandResult {
+// sangoDir: sango設定ディレクトリ（テンプレートキャッシュ用）
+func ExpandIncludes(projectRoot, worktreeDir string, services []string, include config.IncludeConfig, vars map[string]string, sangoDir string) *ExpandResult {
 	result := &ExpandResult{}
 
 	// rootエントリをworktreeルートに配置する
 	// source はプロジェクトルート基準、target はworktreeDir基準
 	for _, entry := range include.Root {
-		if err := processEntry(projectRoot, worktreeDir, entry, vars); err != nil {
+		if err := processEntry(projectRoot, worktreeDir, entry, vars, sangoDir); err != nil {
 			wrapped := fmt.Errorf("root エントリ (source=%s): %w", entry.Source, err)
 			if entry.Required {
 				result.Errors = append(result.Errors, wrapped)
@@ -63,7 +66,7 @@ func ExpandIncludes(projectRoot, worktreeDir string, services []string, include 
 		}
 		targetDir := filepath.Join(worktreeDir, svc)
 		for _, entry := range entries {
-			if err := processEntry(projectRoot, targetDir, entry, vars); err != nil {
+			if err := processEntry(projectRoot, targetDir, entry, vars, sangoDir); err != nil {
 				wrapped := fmt.Errorf("per_service エントリ (service=%s, source=%s): %w", svc, entry.Source, err)
 				if entry.Required {
 					result.Errors = append(result.Errors, wrapped)
@@ -80,7 +83,8 @@ func ExpandIncludes(projectRoot, worktreeDir string, services []string, include 
 // processEntry は単一のIncludeEntryを処理する
 // baseDir: ソースファイルの基準ディレクトリ
 // targetDir: ターゲットファイルの基準ディレクトリ
-func processEntry(baseDir, targetDir string, entry config.IncludeEntry, vars map[string]string) error {
+// sangoDir: sango設定ディレクトリ（テンプレートキャッシュ用）
+func processEntry(baseDir, targetDir string, entry config.IncludeEntry, vars map[string]string, sangoDir string) error {
 	// ソース・ターゲットの絶対パスを解決する
 	srcPath := resolvePath(baseDir, entry.Source)
 	dstPath := resolvePath(targetDir, entry.Target)
@@ -110,7 +114,7 @@ func processEntry(baseDir, targetDir string, entry config.IncludeEntry, vars map
 	case "symlink":
 		return createSymlink(srcPath, dstPath)
 	case "template":
-		return expandTemplate(srcPath, dstPath, vars)
+		return expandTemplate(srcPath, dstPath, vars, sangoDir)
 	default:
 		return fmt.Errorf("未知のstrategy: %q (copy/symlink/template のいずれかを指定してください)", entry.Strategy)
 	}
@@ -165,26 +169,73 @@ func createSymlink(src, dst string) error {
 
 // expandTemplate はソースファイルを読み込み、変数を展開してターゲットに書き込む
 // ${varname} 形式のプレースホルダーを vars マップで置換する
-func expandTemplate(src, dst string, vars map[string]string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return fmt.Errorf("テンプレートファイルの読み込みに失敗: %w", err)
-	}
-
-	content := string(data)
-	// ${varname} を vars マップの値で置換する
-	for k, v := range vars {
-		placeholder := "${" + k + "}"
-		content = strings.ReplaceAll(content, placeholder, v)
-	}
-
+// テンプレート元のオリジナル内容をキャッシュして、次のworktree作成時に再利用する
+func expandTemplate(src, dst string, vars map[string]string, sangoDir string) error {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return fmt.Errorf("ソースファイルの情報取得に失敗: %w", err)
 	}
 
+	srcContent, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("テンプレートファイルの読み込みに失敗: %w", err)
+	}
+
+	// キャッシュ用のキーを計算（ソースの絶対パスのSHA256）
+	absSrc, err := filepath.Abs(src)
+	if err != nil {
+		return fmt.Errorf("ソースの絶対パス解決に失敗: %w", err)
+	}
+
+	cacheKey := sha256.Sum256([]byte(absSrc))
+	cacheKeyHex := hex.EncodeToString(cacheKey[:])
+	cachePath := filepath.Join(sangoDir, "template-cache", cacheKeyHex+".template")
+
+	// テンプレート内容を決定
+	var templateContent []byte
+
+	// srcContentに${が含まれているかチェック
+	if strings.Contains(string(srcContent), "${") {
+		// srcはまだテンプレート（展開済みでない）→ キャッシュに保存
+		templateContent = srcContent
+		if err := saveCachedTemplate(cachePath, templateContent); err != nil {
+			// キャッシュ保存失敗は警告にとどめる（致命的ではない）
+			fmt.Fprintf(os.Stderr, "警告: テンプレートキャッシュの保存に失敗: %v\n", err)
+		}
+	} else {
+		// srcは展開済み（値が置き換わっている）
+		// キャッシュがあればそこから読む
+		if cached, err := os.ReadFile(cachePath); err == nil {
+			templateContent = cached
+		} else {
+			// キャッシュもない → フォールバック: srcをそのまま使う
+			templateContent = srcContent
+		}
+	}
+
+	// テンプレートを展開
+	content := string(templateContent)
+	for k, v := range vars {
+		placeholder := "${" + k + "}"
+		content = strings.ReplaceAll(content, placeholder, v)
+	}
+
 	if err := os.WriteFile(dst, []byte(content), srcInfo.Mode()); err != nil {
 		return fmt.Errorf("テンプレート展開結果の書き込みに失敗: %w", err)
+	}
+
+	return nil
+}
+
+// saveCachedTemplate はテンプレートをキャッシュディレクトリに保存する
+func saveCachedTemplate(cachePath string, content []byte) error {
+	cacheDir := filepath.Dir(cachePath)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return fmt.Errorf("キャッシュディレクトリ作成に失敗: %w", err)
+	}
+
+	if err := os.WriteFile(cachePath, content, 0o644); err != nil {
+		return fmt.Errorf("キャッシュファイル書き込みに失敗: %w", err)
 	}
 
 	return nil

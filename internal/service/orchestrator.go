@@ -95,6 +95,23 @@ func (o *Orchestrator) ResolveServicePorts() map[string]int {
 
 // Up はサービスを起動する
 func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) {
+	// テンプレートの再展開: worktree起動時にinclude設定に従ってテンプレートを最新ポートで展開し直す
+	if len(o.cfg.Worktree.Include.Root) > 0 || len(o.cfg.Worktree.Include.PerService) > 0 {
+		// このworktreeのサービス情報を取得
+		ws, err := worktree.Load(o.sangoDir)
+		if err == nil && ws != nil {
+			if wt, ok := ws.Worktrees[o.wtName]; ok {
+				vars := worktree.BuildIncludeVars(o.cfg, wt.Offset, wt.Services)
+				result := worktree.ExpandIncludes(os.Getenv("PWD"), o.wtDir, wt.Services, o.cfg.Worktree.Include, vars, o.sangoDir)
+				if result.HasErrors() {
+					log.Warn().Err(result.CriticalError()).Msg("テンプレート再展開で必須エントリの展開に失敗")
+				} else if warning := result.WarningError(); warning != nil {
+					log.Warn().Err(warning).Msg("テンプレート再展開で警告")
+				}
+			}
+		}
+	}
+
 	targets := ResolveTargets(o.cfg, services, profile)
 	if len(targets) == 0 {
 		for name := range o.cfg.Services {
