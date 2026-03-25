@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -119,6 +121,68 @@ func (s *WorktreeState) AllocateOffset(baseOffset int) int {
 	offset := s.NextOffset
 	s.NextOffset += baseOffset
 	return offset
+}
+
+// DetectFromCWD はCWDからworktree名を自動検出する。
+// CWDがworktreeディレクトリ配下にあれば対応するworktree名を返す。
+// 検出できなければ空文字列を返す。
+func DetectFromCWD(sangoDir string, ws *WorktreeState) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return detectFromPath(sangoDir, cwd, ws)
+}
+
+// detectFromPath はCWDベースのworktree検出の内部実装（テスト可能）
+func detectFromPath(sangoDir, cwd string, ws *WorktreeState) string {
+	if ws == nil || len(ws.Worktrees) == 0 {
+		return ""
+	}
+
+	// sangoDirの親 = プロジェクトルート
+	projectRoot := filepath.Dir(sangoDir)
+
+	// worktreeベースディレクトリの絶対パスを構築
+	// sango.yamlのbase_dirはここでは参照できないのでデフォルト "worktrees" を使用
+	// （DefaultDirがsangoDirを返す時点でプロジェクトルートは確定している）
+	baseDir := filepath.Join(projectRoot, "worktrees")
+
+	// 絶対パスに正規化
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return ""
+	}
+	absCWD, err := filepath.Abs(cwd)
+	if err != nil {
+		return ""
+	}
+
+	// CWDがbaseDir配下にあるか判定
+	prefix := absBase + string(filepath.Separator)
+	if !strings.HasPrefix(absCWD, prefix) {
+		return ""
+	}
+
+	// 相対パスを取得（例: "user/feature-123/my-app"）
+	rel := absCWD[len(prefix):]
+
+	// worktree名の長い順にソートしてマッチング（最長一致）
+	names := make([]string, 0, len(ws.Worktrees))
+	for name := range ws.Worktrees {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		return len(names[i]) > len(names[j])
+	})
+
+	for _, name := range names {
+		if rel == name || strings.HasPrefix(rel, name+string(filepath.Separator)) {
+			return name
+		}
+	}
+
+	return ""
 }
 
 func newEmptyState() *WorktreeState {

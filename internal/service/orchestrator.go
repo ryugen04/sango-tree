@@ -56,18 +56,26 @@ func NewOrchestratorWithWorktree(cfg *config.Config, cfgFile, worktreeFlag strin
 	// オフセット決定後に変数展開を実行（パーシャルワークツリー対応）
 	config.ExpandVariablesWithOffset(cfg, offset, wtServices)
 
+	// wtDirを絶対パスに解決（CWDがworktree内でも動作するように）
+	wtDir := cfg.Worktree.WorktreeDir(wtName)
+	if !filepath.IsAbs(wtDir) {
+		projectRoot := filepath.Dir(sangoDir)
+		wtDir = filepath.Join(projectRoot, wtDir)
+	}
+
 	return &Orchestrator{
 		cfg:      cfg,
 		cfgFile:  cfgFile,
 		sangoDir: sangoDir,
 		wtName:   wtName,
 		wtKey:    wtKey,
-		wtDir:    cfg.Worktree.WorktreeDir(wtName),
+		wtDir:    wtDir,
 		offset:   offset,
 	}, nil
 }
 
 // ResolveActiveWorktree は使用するworktree名を解決する
+// 優先順位: 1. --worktreeフラグ → 2. CWD自動検出 → 3. activeフィールド → 4. "main"
 func ResolveActiveWorktree(sangoDir, worktreeFlag string) string {
 	if worktreeFlag != "" {
 		return worktreeFlag
@@ -75,6 +83,10 @@ func ResolveActiveWorktree(sangoDir, worktreeFlag string) string {
 	ws, err := worktree.Load(sangoDir)
 	if err != nil {
 		return "main"
+	}
+	// CWDベースの検出を試行
+	if detected := worktree.DetectFromCWD(sangoDir, ws); detected != "" {
+		return detected
 	}
 	if ws.Active == "" {
 		return "main"

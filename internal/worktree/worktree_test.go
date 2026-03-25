@@ -102,6 +102,92 @@ func TestSetActive(t *testing.T) {
 	}
 }
 
+func TestDetectFromPath(t *testing.T) {
+	// テスト用ディレクトリ構造:
+	// tmpdir/.sango/worktrees.json
+	// tmpdir/worktrees/ryugen04/feat-100/app-web/
+	// tmpdir/worktrees/ryugen04/feat-200/app-backend/
+	// tmpdir/worktrees/develop/
+	tmpdir := t.TempDir()
+	sangoDir := filepath.Join(tmpdir, ".sango")
+	os.MkdirAll(sangoDir, 0o755)
+
+	ws := &WorktreeState{
+		Active: "ryugen04/feat-200",
+		Worktrees: map[string]*WorktreeInfo{
+			"develop":           {Offset: 0},
+			"ryugen04/feat-100":  {Offset: 1600},
+			"ryugen04/feat-200":  {Offset: 1500},
+		},
+	}
+
+	tests := []struct {
+		name string
+		cwd  string
+		want string
+	}{
+		{
+			name: "worktreeルートにいる場合",
+			cwd:  filepath.Join(tmpdir, "worktrees", "ryugen04", "feat-100"),
+			want: "ryugen04/feat-100",
+		},
+		{
+			name: "worktree内のサブディレクトリにいる場合",
+			cwd:  filepath.Join(tmpdir, "worktrees", "ryugen04", "feat-100", "app-web", "src"),
+			want: "ryugen04/feat-100",
+		},
+		{
+			name: "別のworktreeにいる場合",
+			cwd:  filepath.Join(tmpdir, "worktrees", "ryugen04", "feat-200"),
+			want: "ryugen04/feat-200",
+		},
+		{
+			name: "developにいる場合",
+			cwd:  filepath.Join(tmpdir, "worktrees", "develop"),
+			want: "develop",
+		},
+		{
+			name: "プロジェクトルートにいる場合（worktrees外）",
+			cwd:  tmpdir,
+			want: "",
+		},
+		{
+			name: "worktreesディレクトリ直下にいる場合",
+			cwd:  filepath.Join(tmpdir, "worktrees"),
+			want: "",
+		},
+		{
+			name: "未登録のworktreeパスにいる場合",
+			cwd:  filepath.Join(tmpdir, "worktrees", "unknown", "branch"),
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectFromPath(sangoDir, tt.cwd, ws)
+			if got != tt.want {
+				t.Errorf("detectFromPath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectFromPath_NilState(t *testing.T) {
+	got := detectFromPath("/tmp/.sango", "/tmp/worktrees/foo", nil)
+	if got != "" {
+		t.Errorf("expected empty for nil state, got %q", got)
+	}
+}
+
+func TestDetectFromPath_EmptyWorktrees(t *testing.T) {
+	ws := &WorktreeState{Worktrees: map[string]*WorktreeInfo{}}
+	got := detectFromPath("/tmp/.sango", "/tmp/worktrees/foo", ws)
+	if got != "" {
+		t.Errorf("expected empty for empty worktrees, got %q", got)
+	}
+}
+
 func TestAllocateOffset(t *testing.T) {
 	s := newEmptyState()
 	s.NextOffset = 0
