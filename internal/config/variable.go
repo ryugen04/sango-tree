@@ -73,7 +73,12 @@ func buildResolverWithOffset(cfg *Config, serviceName string, offset int, wtSet 
 		if wtSet == nil {
 			return true
 		}
-		return wtSet[svcName]
+		// repo_nameがあればそちらで判定（例: my-app-server → repo_name: my-app）
+		repoName := svc.RepoName
+		if repoName == "" {
+			repoName = svcName
+		}
+		return wtSet[repoName]
 	}
 
 	return func(varName string) string {
