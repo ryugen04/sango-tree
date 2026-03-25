@@ -57,7 +57,9 @@ func (m *Manager) Start(opts StartOptions) (int, error) {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
-		stdoutW, err := collector.StdoutWriter()
+		// *os.Fileを直接設定し、子プロセスにFDを継承させる
+		// io.Writerだとexec.Commandが内部パイプを作成→sango終了時にSIGPIPEで子プロセスが死ぬ
+		stdoutF, err := collector.StdoutFile()
 		if err != nil {
 			log.Warn().Str("service", opts.Name).Err(err).Msg("stdoutパイプの作成に失敗")
 			collector.Close()
@@ -65,7 +67,7 @@ func (m *Manager) Start(opts StartOptions) (int, error) {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		} else {
-			stderrW, err := collector.StderrWriter()
+			stderrF, err := collector.StderrFile()
 			if err != nil {
 				log.Warn().Str("service", opts.Name).Err(err).Msg("stderrパイプの作成に失敗")
 				collector.Close()
@@ -73,8 +75,8 @@ func (m *Manager) Start(opts StartOptions) (int, error) {
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
 			} else {
-				cmd.Stdout = stdoutW
-				cmd.Stderr = stderrW
+				cmd.Stdout = stdoutF
+				cmd.Stderr = stderrF
 			}
 		}
 	}
@@ -168,19 +170,19 @@ func (m *Manager) Start(opts StartOptions) (int, error) {
 			if collErr != nil {
 				newCmd.Stdout = os.Stdout
 				newCmd.Stderr = os.Stderr
-			} else if stdoutW, err := newCollector.StdoutWriter(); err != nil {
+			} else if stdoutF, err := newCollector.StdoutFile(); err != nil {
 				newCollector.Close()
 				newCollector = nil
 				newCmd.Stdout = os.Stdout
 				newCmd.Stderr = os.Stderr
-			} else if stderrW, err := newCollector.StderrWriter(); err != nil {
+			} else if stderrF, err := newCollector.StderrFile(); err != nil {
 				newCollector.Close()
 				newCollector = nil
 				newCmd.Stdout = os.Stdout
 				newCmd.Stderr = os.Stderr
 			} else {
-				newCmd.Stdout = stdoutW
-				newCmd.Stderr = stderrW
+				newCmd.Stdout = stdoutF
+				newCmd.Stderr = stderrF
 			}
 			collector = newCollector
 

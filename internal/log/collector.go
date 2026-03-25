@@ -50,27 +50,26 @@ func NewCollector(sangoDir, worktree, service string) (*Collector, error) {
 	}, nil
 }
 
-// StdoutWriter はcmd.Stdoutに設定するio.Writerを返す
-// ターミナル出力 + JSONL書き込みの両方を行う
-func (c *Collector) StdoutWriter() (io.Writer, error) {
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		return nil, fmt.Errorf("stdout用パイプの作成に失敗: %w", err)
-	}
-	c.stdoutPipeW = pw
-	go c.scanAndWrite(pr, "stdout", os.Stdout)
-	return pw, nil
+// StdoutFile はcmd.Stdoutに設定する*os.Fileを返す
+// ログファイルに直接書き込むことで、パイプによるEPIPE/SIGPIPEを完全に防ぐ
+func (c *Collector) StdoutFile() (*os.File, error) {
+	return c.file, nil
 }
 
-// StderrWriter はcmd.Stderrに設定するio.Writerを返す
+// StderrFile はcmd.Stderrに設定する*os.Fileを返す
+// stdoutと同じログファイルに書き込む
+func (c *Collector) StderrFile() (*os.File, error) {
+	return c.file, nil
+}
+
+// StdoutWriter はcmd.Stdoutに設定するio.Writerを返す（後方互換性用）
+func (c *Collector) StdoutWriter() (io.Writer, error) {
+	return c.StdoutFile()
+}
+
+// StderrWriter はcmd.Stderrに設定するio.Writerを返す（後方互換性用）
 func (c *Collector) StderrWriter() (io.Writer, error) {
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		return nil, fmt.Errorf("stderr用パイプの作成に失敗: %w", err)
-	}
-	c.stderrPipeW = pw
-	go c.scanAndWrite(pr, "stderr", os.Stderr)
-	return pw, nil
+	return c.StderrFile()
 }
 
 // scanAndWrite はパイプから行を読み取り、ターミナルとJSONLファイルの両方に書き込む
