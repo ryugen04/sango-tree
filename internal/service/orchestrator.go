@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/ryugen04/sango-tree/internal/config"
@@ -208,8 +209,21 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 						Int("pid", holderPID).
 						Msg("ポート競合: 孤児プロセスを検出、killします")
 				}
-				if err := syscall.Kill(holderPID, syscall.SIGKILL); err != nil {
-					log.Warn().Err(err).Int("pid", holderPID).Msg("プロセスのkillに失敗")
+				// プロセスグループにSIGTERMを試みてからSIGKILL（孤児プロセス防止）
+				pgid, pgidErr := syscall.Getpgid(holderPID)
+				if pgidErr == nil && pgid > 0 {
+					_ = syscall.Kill(-pgid, syscall.SIGTERM)
+				} else {
+					_ = syscall.Kill(holderPID, syscall.SIGTERM)
+				}
+				time.Sleep(2 * time.Second)
+				if process.IsProcessRunning(holderPID) {
+					if pgidErr == nil && pgid > 0 {
+						_ = syscall.Kill(-pgid, syscall.SIGKILL)
+					} else {
+						_ = syscall.Kill(holderPID, syscall.SIGKILL)
+					}
+					time.Sleep(200 * time.Millisecond)
 				}
 				// PIDファイルのクリーンアップ
 				if found {
@@ -344,6 +358,25 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 		}
 	}
 
+	// Up失敗時のロールバック: 起動済みプロセスサービスを停止
+	if len(result.Errors) > 0 {
+		for _, info := range result.Started {
+			if info.Status == "started" {
+				log.Warn().Str("service", info.Name).Msg("起動失敗によるロールバック: 停止します")
+				svc := o.cfg.Services[info.Name]
+				var mgr *process.Manager
+				if svc != nil && svc.Shared {
+					mgr = process.NewManager(o.sangoDir, "shared")
+				} else {
+					mgr = process.NewManager(o.sangoDir, o.wtKey)
+				}
+				if err := mgr.Stop(info.Name); err != nil {
+					log.Warn().Str("service", info.Name).Err(err).Msg("ロールバック停止に失敗")
+				}
+			}
+		}
+	}
+
 	return result, nil
 }
 
@@ -399,6 +432,28 @@ func (o *Orchestrator) Down(services []string, all bool) (*DownResult, error) {
 			continue
 		}
 		result.Stopped = append(result.Stopped, name)
+
+		// ポートベースのクリーンアップ: Stop後もポートが使用中なら残存プロセスをkill
+		if svc.Port > 0 {
+			resolvedPort := svc.Port
+			if !svc.Shared {
+				resolvedPort = svc.Port + o.offset
+			}
+			if holderPID, err := port.GetPortHolder(resolvedPort); err == nil && holderPID > 0 {
+				log.Warn().Str("service", name).Int("port", resolvedPort).Int("pid", holderPID).
+					Msg("停止後もポートが使用中、残存プロセスをkill")
+				pgid, pgidErr := syscall.Getpgid(holderPID)
+				if pgidErr == nil && pgid > 0 {
+					_ = syscall.Kill(-pgid, syscall.SIGTERM)
+					time.Sleep(1 * time.Second)
+					if process.IsProcessRunning(holderPID) {
+						_ = syscall.Kill(-pgid, syscall.SIGKILL)
+					}
+				} else {
+					_ = syscall.Kill(holderPID, syscall.SIGKILL)
+				}
+			}
+		}
 	}
 
 	return result, nil
