@@ -506,28 +506,77 @@ func (o *Orchestrator) Status() (*StatusResult, error) {
 	// ワークツリー一覧を取得し、各worktreeのサービス起動状況を確認
 	ws, err := worktree.Load(o.sangoDir)
 	if err == nil && ws != nil {
+		// サービス名をソートして一貫した順序で出力
+		svcNames := make([]string, 0, len(o.cfg.Services))
+		for svcName := range o.cfg.Services {
+			svc := o.cfg.Services[svcName]
+			if svc.Shared || (svc.Repo != "" && svc.Command == "") {
+				continue
+			}
+			svcNames = append(svcNames, svcName)
+		}
+		sort.Strings(svcNames)
+
 		for name, wt := range ws.Worktrees {
 			wtKey := worktree.ToKey(name)
 			running := 0
-			total := 0
-			for svcName, svc := range o.cfg.Services {
-				// shared、repo-onlyは除外
-				if svc.Shared || (svc.Repo != "" && svc.Command == "") {
-					continue
+			webPort := 0
+			var svcInfos []ServiceInfo
+
+			for _, svcName := range svcNames {
+				svc := o.cfg.Services[svcName]
+				resolvedPort := 0
+				if svc.Port > 0 {
+					resolvedPort = svc.Port + wt.Offset
 				}
-				total++
+
+				// OpenURLが設定されたサービスのポートをWebPortとして記録
+				if svc.OpenURL != "" && webPort == 0 {
+					webPort = resolvedPort
+				}
+
+				status := "stopped"
+				pid := 0
 				if p, err := process.ReadPID(o.sangoDir, wtKey, svcName); err == nil {
 					if process.IsProcessRunning(p) {
+						status = "running"
+						pid = p
 						running++
 					}
 				}
+
+				// PIDなしでもポートが使用中ならrunning
+				if status == "stopped" && resolvedPort > 0 {
+					checkCmd := exec.Command("lsof", "-t", "-i", fmt.Sprintf(":%d", resolvedPort), "-sTCP:LISTEN")
+					if out, err := checkCmd.Output(); err == nil && len(out) > 0 {
+						status = "running"
+						running++
+					}
+				}
+
+				state := process.ReadState(o.sangoDir, wtKey, svcName)
+				health := ""
+				if state.HealthStatus != "" && status == "running" {
+					health = state.HealthStatus
+				}
+
+				svcInfos = append(svcInfos, ServiceInfo{
+					Name:   svcName,
+					Port:   resolvedPort,
+					Status: status,
+					Health: health,
+					PID:    pid,
+				})
 			}
+
 			result.Worktrees = append(result.Worktrees, WorktreeInfo{
 				Name:            name,
 				Offset:          wt.Offset,
+				WebPort:         webPort,
 				RunningServices: running,
-				TotalServices:   total,
+				TotalServices:   len(svcNames),
 				Repos:           wt.Services,
+				Services:        svcInfos,
 			})
 		}
 	}

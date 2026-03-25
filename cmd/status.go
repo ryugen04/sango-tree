@@ -39,20 +39,12 @@ var statusCmd = &cobra.Command{
 		headerStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
 		cellStyle := lipgloss.NewStyle().Padding(0, 1)
 
-		// サービスを分類
+		// サービスを分類（shared判定用）
 		var shared []service.ServiceInfo
-		var servers []service.ServiceInfo
-		var repos []string
 		for _, svc := range result.Services {
-			if svc.IsRepoOnly {
-				repos = append(repos, svc.Name)
-				continue
-			}
 			if svc.IsShared {
 				shared = append(shared, svc)
-				continue
 			}
-			servers = append(servers, svc)
 		}
 
 		// --- Shared Services ---
@@ -70,82 +62,67 @@ var statusCmd = &cobra.Command{
 			fmt.Println()
 		}
 
-		// --- ワークツリー情報 + サーバー ---
-		// ワークツリー一覧（複数ある場合は全表示）
-		if len(result.Worktrees) > 1 {
+		// --- ワークツリー一覧 ---
+		if len(result.Worktrees) > 0 {
 			fmt.Println(bold.Render("Worktrees"))
-			// ソート
 			sort.Slice(result.Worktrees, func(i, j int) bool {
 				return result.Worktrees[i].Name < result.Worktrees[j].Name
 			})
 			wtRows := make([][]string, 0, len(result.Worktrees))
 			for _, wt := range result.Worktrees {
-				name := wt.Name
 				svcStatus := dim.Render(fmt.Sprintf("0/%d", wt.TotalServices))
 				if wt.RunningServices > 0 {
 					svcStatus = green.Render(fmt.Sprintf("%d/%d", wt.RunningServices, wt.TotalServices))
 				}
 				offsetStr := dim.Render(fmt.Sprintf("%d", wt.Offset))
-				wtRows = append(wtRows, []string{name, offsetStr, svcStatus})
+				webStr := dim.Render("-")
+				if wt.WebPort > 0 {
+					webStr = strconv.Itoa(wt.WebPort)
+				}
+				wtRows = append(wtRows, []string{wt.Name, offsetStr, webStr, svcStatus})
 			}
-			fmt.Println(renderTable([]string{"WORKTREE", "OFFSET", "SERVICES"}, wtRows, headerStyle, cellStyle, dim))
+			fmt.Println(renderTable([]string{"WORKTREE", "OFFSET", "WEB", "SERVICES"}, wtRows, headerStyle, cellStyle, dim))
 			fmt.Println()
 		}
 
-		// サーバー一覧
-		wtLabel := result.Worktree
+		// --- 起動中worktreeのサービス詳細 ---
+		sort.Slice(result.Worktrees, func(i, j int) bool {
+			return result.Worktrees[i].Name < result.Worktrees[j].Name
+		})
 		for _, wt := range result.Worktrees {
-			if wt.Name == result.Worktree {
-				if wt.Offset > 0 {
-					wtLabel = fmt.Sprintf("%s, offset:%d", wt.Name, wt.Offset)
+			if wt.RunningServices == 0 {
+				continue
+			}
+			fmt.Println(bold.Render(fmt.Sprintf("Services (%s)", wt.Name)))
+			rows := make([][]string, 0, len(wt.Services))
+			for _, svc := range wt.Services {
+				portStr := dim.Render("-")
+				if svc.Port > 0 {
+					portStr = strconv.Itoa(svc.Port)
 				}
-				break
-			}
-		}
-		fmt.Println(bold.Render(fmt.Sprintf("Services (worktree: %s)", wtLabel)))
-
-		rows := make([][]string, 0, len(servers))
-		for _, svc := range servers {
-			portStr := dim.Render("-")
-			if svc.Port > 0 {
-				portStr = strconv.Itoa(svc.Port)
-			}
-
-			healthStr := dim.Render("-")
-			if svc.Health != "" {
-				switch svc.Health {
-				case "healthy":
-					healthStr = green.Render(svc.Health)
-				default:
-					healthStr = yellow.Render(svc.Health)
+				healthStr := dim.Render("-")
+				if svc.Health != "" {
+					switch svc.Health {
+					case "healthy":
+						healthStr = green.Render(svc.Health)
+					default:
+						healthStr = yellow.Render(svc.Health)
+					}
 				}
-			}
-
-			pidStr := dim.Render("-")
-			if svc.PID > 0 {
-				pidStr = strconv.Itoa(svc.PID)
-			}
-
-			rows = append(rows, []string{
-				svc.Name,
-				portStr,
-				renderStatus(svc.Status, green, gray, yellow),
-				healthStr,
-				pidStr,
-			})
-		}
-		fmt.Println(renderTable([]string{"SERVICE", "PORT", "STATUS", "HEALTH", "PID"}, rows, headerStyle, cellStyle, dim))
-
-		// repo-onlyサービス
-		if len(repos) > 0 {
-			repoList := ""
-			for i, name := range repos {
-				if i > 0 {
-					repoList += ", "
+				pidStr := dim.Render("-")
+				if svc.PID > 0 {
+					pidStr = strconv.Itoa(svc.PID)
 				}
-				repoList += name
+				rows = append(rows, []string{
+					svc.Name,
+					portStr,
+					renderStatus(svc.Status, green, gray, yellow),
+					healthStr,
+					pidStr,
+				})
 			}
-			fmt.Println(dim.Render("repos: " + repoList))
+			fmt.Println(renderTable([]string{"SERVICE", "PORT", "STATUS", "HEALTH", "PID"}, rows, headerStyle, cellStyle, dim))
+			fmt.Println()
 		}
 
 		return nil
