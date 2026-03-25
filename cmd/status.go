@@ -78,15 +78,17 @@ var statusCmd = &cobra.Command{
 			sort.Slice(result.Worktrees, func(i, j int) bool {
 				return result.Worktrees[i].Name < result.Worktrees[j].Name
 			})
+			wtRows := make([][]string, 0, len(result.Worktrees))
 			for _, wt := range result.Worktrees {
-				marker := "  "
-				display := wt.Name
-				if wt.IsActive {
-					marker = "* "
-					display = green.Render(wt.Name)
+				name := wt.Name
+				svcStatus := dim.Render(fmt.Sprintf("0/%d", wt.TotalServices))
+				if wt.RunningServices > 0 {
+					svcStatus = green.Render(fmt.Sprintf("%d/%d", wt.RunningServices, wt.TotalServices))
 				}
-				fmt.Printf("%s%s  %s\n", marker, display, dim.Render(fmt.Sprintf("offset:%d", wt.Offset)))
+				offsetStr := dim.Render(fmt.Sprintf("%d", wt.Offset))
+				wtRows = append(wtRows, []string{name, offsetStr, svcStatus})
 			}
+			fmt.Println(renderTable([]string{"WORKTREE", "OFFSET", "SERVICES"}, wtRows, headerStyle, cellStyle, dim))
 			fmt.Println()
 		}
 

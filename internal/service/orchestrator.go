@@ -503,14 +503,31 @@ func (o *Orchestrator) Status() (*StatusResult, error) {
 		Worktree: o.wtName,
 	}
 
-	// ワークツリー一覧を取得
+	// ワークツリー一覧を取得し、各worktreeのサービス起動状況を確認
 	ws, err := worktree.Load(o.sangoDir)
 	if err == nil && ws != nil {
 		for name, wt := range ws.Worktrees {
+			wtKey := worktree.ToKey(name)
+			running := 0
+			total := 0
+			for svcName, svc := range o.cfg.Services {
+				// shared、repo-onlyは除外
+				if svc.Shared || (svc.Repo != "" && svc.Command == "") {
+					continue
+				}
+				total++
+				if p, err := process.ReadPID(o.sangoDir, wtKey, svcName); err == nil {
+					if process.IsProcessRunning(p) {
+						running++
+					}
+				}
+			}
 			result.Worktrees = append(result.Worktrees, WorktreeInfo{
-				Name:     name,
-				Offset:   wt.Offset,
-				IsActive: name == ws.Active,
+				Name:            name,
+				Offset:          wt.Offset,
+				RunningServices: running,
+				TotalServices:   total,
+				Repos:           wt.Services,
 			})
 		}
 	}

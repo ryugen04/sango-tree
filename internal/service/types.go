@@ -16,9 +16,11 @@ type ServiceInfo struct {
 
 // WorktreeInfo はワークツリーの概要情報
 type WorktreeInfo struct {
-	Name     string `json:"name"`
-	Offset   int    `json:"offset"`
-	IsActive bool   `json:"is_active"`
+	Name            string   `json:"name"`
+	Offset          int      `json:"offset"`
+	RunningServices int      `json:"running_services"`
+	TotalServices   int      `json:"total_services"`
+	Repos           []string `json:"repos,omitempty"`
 }
 
 // UpResult はサービス起動の結果
