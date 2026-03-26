@@ -91,7 +91,7 @@ func refreshStatus(cfg *config.Config, cfgFile, sangoDir string) tea.Cmd {
 
 		var entries []wtEntry
 		for name, wt := range ws.Worktrees {
-			orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, name)
+			orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, service.OrchestratorOptions{WorktreeFlag: name})
 			if err != nil {
 				continue
 			}
@@ -120,7 +120,7 @@ func refreshStatus(cfg *config.Config, cfgFile, sangoDir string) tea.Cmd {
 		var shared []service.ServiceInfo
 		if len(ws.Worktrees) > 0 {
 			for name := range ws.Worktrees {
-				orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, name)
+				orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, service.OrchestratorOptions{WorktreeFlag: name})
 				if err != nil {
 					continue
 				}

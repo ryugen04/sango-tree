@@ -28,7 +28,7 @@ func init() {
 }
 
 func runRestart(cfg *config.Config, args []string, profile string) error {
-	orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, worktreeFlag)
+	orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, service.OrchestratorOptions{WorktreeFlag: worktreeFlag})
 	if err != nil {
 		return err
 	}

@@ -44,7 +44,7 @@ var doctorCmd = &cobra.Command{
 		// ポート競合チェック（組み込み）
 		sangoDir := worktree.DefaultDir()
 		wtName := service.ResolveActiveWorktree(sangoDir, worktreeFlag)
-		orch, orchErr := service.NewOrchestratorWithWorktree(cfg, cfgFile, worktreeFlag)
+		orch, orchErr := service.NewOrchestratorWithWorktree(cfg, cfgFile, service.OrchestratorOptions{WorktreeFlag: worktreeFlag})
 		if orchErr == nil {
 			ports := orch.ResolveServicePorts()
 			portResults := doctor.CheckPortConflicts(ports, sangoDir)

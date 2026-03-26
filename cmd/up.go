@@ -8,7 +8,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var upProfile string
+var (
+	upProfile    string
+	defaultPorts bool
+)
 
 var upCmd = &cobra.Command{
 	Use:   "up [services...]",
@@ -24,12 +27,16 @@ var upCmd = &cobra.Command{
 
 func init() {
 	upCmd.Flags().StringVar(&upProfile, "profile", "", "プロファイル名")
+	upCmd.Flags().BoolVar(&defaultPorts, "default-ports", false, "デフォルトポート（offset=0）で起動")
 	rootCmd.AddCommand(upCmd)
 }
 
 // runUp はサービスを起動するコアロジック
 func runUp(cfg *config.Config, args []string, profile string) error {
-	orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, worktreeFlag)
+	orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, service.OrchestratorOptions{
+		WorktreeFlag: worktreeFlag,
+		DefaultPorts: defaultPorts,
+	})
 	if err != nil {
 		return err
 	}

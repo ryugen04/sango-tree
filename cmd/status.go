@@ -20,7 +20,7 @@ var statusCmd = &cobra.Command{
 			return err
 		}
 
-		orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, worktreeFlag)
+		orch, err := service.NewOrchestratorWithWorktree(cfg, cfgFile, service.OrchestratorOptions{WorktreeFlag: worktreeFlag})
 		if err != nil {
 			return err
 		}

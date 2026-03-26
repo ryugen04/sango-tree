@@ -33,13 +33,19 @@ type Orchestrator struct {
 
 // NewOrchestrator はOrchestratorを生成する
 func NewOrchestrator(cfg *config.Config, cfgFile string) (*Orchestrator, error) {
-	return NewOrchestratorWithWorktree(cfg, cfgFile, "")
+	return NewOrchestratorWithWorktree(cfg, cfgFile, OrchestratorOptions{})
+}
+
+// OrchestratorOptions はOrchestrator生成時のオプション
+type OrchestratorOptions struct {
+	WorktreeFlag string
+	DefaultPorts bool // trueの場合、offset=0（デフォルトポート）で起動
 }
 
 // NewOrchestratorWithWorktree はworktree名を指定してOrchestratorを生成する
-func NewOrchestratorWithWorktree(cfg *config.Config, cfgFile, worktreeFlag string) (*Orchestrator, error) {
+func NewOrchestratorWithWorktree(cfg *config.Config, cfgFile string, opts OrchestratorOptions) (*Orchestrator, error) {
 	sangoDir := worktree.DefaultDir()
-	wtName := ResolveActiveWorktree(sangoDir, worktreeFlag)
+	wtName := ResolveActiveWorktree(sangoDir, opts.WorktreeFlag)
 	wtKey := worktree.ToKey(wtName)
 
 	ws, err := worktree.Load(sangoDir)
@@ -51,6 +57,11 @@ func NewOrchestratorWithWorktree(cfg *config.Config, cfgFile, worktreeFlag strin
 	if wt, ok := ws.Worktrees[wtName]; ok {
 		offset = wt.Offset
 		wtServices = wt.Services
+	}
+
+	// --default-ports: offset=0でデフォルトポートを使用
+	if opts.DefaultPorts {
+		offset = 0
 	}
 
 	// オフセット決定後に変数展開を実行（パーシャルワークツリー対応）
@@ -113,8 +124,9 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 		ws, err := worktree.Load(o.sangoDir)
 		if err == nil && ws != nil {
 			if wt, ok := ws.Worktrees[o.wtName]; ok {
-				vars := worktree.BuildIncludeVars(o.cfg, wt.Offset, wt.Services)
-				result := worktree.ExpandIncludes(os.Getenv("PWD"), o.wtDir, wt.Services, o.cfg.Worktree.Include, vars, o.sangoDir)
+				vars := worktree.BuildIncludeVars(o.cfg, o.offset, wt.Services)
+				projectRoot := filepath.Dir(o.sangoDir)
+			result := worktree.ExpandIncludes(projectRoot, o.wtDir, wt.Services, o.cfg.Worktree.Include, vars, o.sangoDir)
 				if result.HasErrors() {
 					log.Warn().Err(result.CriticalError()).Msg("テンプレート再展開で必須エントリの展開に失敗")
 				} else if warning := result.WarningError(); warning != nil {
