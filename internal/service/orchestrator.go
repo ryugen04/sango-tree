@@ -126,7 +126,7 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 			if wt, ok := ws.Worktrees[o.wtName]; ok {
 				vars := worktree.BuildIncludeVars(o.cfg, o.offset, wt.Services)
 				projectRoot := filepath.Dir(o.sangoDir)
-			result := worktree.ExpandIncludes(projectRoot, o.wtDir, wt.Services, o.cfg.Worktree.Include, vars, o.sangoDir)
+				result := worktree.ExpandIncludes(projectRoot, o.wtDir, wt.Services, o.cfg.Worktree.Include, vars, o.sangoDir)
 				if result.HasErrors() {
 					log.Warn().Err(result.CriticalError()).Msg("テンプレート再展開で必須エントリの展開に失敗")
 				} else if warning := result.WarningError(); warning != nil {
@@ -373,6 +373,13 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 			})
 		}
 
+		startedIdx := len(result.Started) - 1
+		if startedIdx < 0 || result.Started[startedIdx].Name != name {
+			continue
+		}
+
+		healthcheckPassed := false
+
 		// ヘルスチェック
 		if svc.Healthcheck != nil && svc.Type != "script" {
 			hcCfg := process.HealthcheckConfig{
@@ -391,11 +398,43 @@ func (o *Orchestrator) Up(services []string, profile string) (*UpResult, error) 
 				result.Errors = append(result.Errors, fmt.Sprintf("ヘルスチェック失敗 (%s): %v", name, err))
 				continue
 			}
-			_ = process.WriteState(o.sangoDir, o.wtKey, name, &process.ServiceState{HealthStatus: "healthy"})
-			// Startedの最後のエントリにHealth情報を追加
-			if len(result.Started) > 0 {
-				result.Started[len(result.Started)-1].Health = "healthy"
+
+			state := process.ReadState(o.sangoDir, o.wtKey, name)
+			state.HealthStatus = "healthy"
+			_ = process.WriteState(o.sangoDir, o.wtKey, name, state)
+			result.Started[startedIdx].Health = "healthy"
+			healthcheckPassed = true
+		}
+
+		// scriptは検証対象外
+		if svc.Type == "script" {
+			continue
+		}
+
+		verification := process.RunPostStartVerification(context.Background(), name, resolvedPort, result.Started[startedIdx].PID)
+
+		state := process.ReadState(o.sangoDir, o.wtKey, name)
+		state.PortListening = verification.PortListening
+		state.ProcessAlive = verification.ProcessAlive
+		state.VerifiedAt = time.Now().Format(time.RFC3339)
+		_ = process.WriteState(o.sangoDir, o.wtKey, name, state)
+
+		result.Started[startedIdx].PortListening = verification.PortListening
+
+		if verification.HasErrors() {
+			if healthcheckPassed {
+				log.Warn().
+					Str("service", name).
+					Strs("errors", verification.Errors).
+					Msg("ヘルスチェック成功後の起動後検証で警告")
+				continue
 			}
+
+			if stopErr := pm.Stop(name); stopErr != nil {
+				log.Warn().Str("service", name).Err(stopErr).Msg("起動後検証失敗後の停止に失敗")
+			}
+			result.Errors = append(result.Errors, fmt.Sprintf("起動後検証失敗 (%s): %v", name, verification.Errors))
+			continue
 		}
 	}
 
@@ -600,13 +639,18 @@ func (o *Orchestrator) Status() (*StatusResult, error) {
 				if state.HealthStatus != "" && status == "running" {
 					health = state.HealthStatus
 				}
+				var portListening *bool
+				if status == "running" {
+					portListening = state.PortListening
+				}
 
 				svcInfos = append(svcInfos, ServiceInfo{
-					Name:   svcName,
-					Port:   resolvedPort,
-					Status: status,
-					Health: health,
-					PID:    pid,
+					Name:          svcName,
+					Port:          resolvedPort,
+					Status:        status,
+					Health:        health,
+					PID:           pid,
+					PortListening: portListening,
 				})
 			}
 
@@ -676,25 +720,30 @@ func (o *Orchestrator) Status() (*StatusResult, error) {
 		if state.HealthStatus != "" {
 			health = state.HealthStatus
 		}
+		portListening := state.PortListening
 
 		// プロセスが停止しているのにhealthがhealthyのままの場合はstaleとしてリセット
 		if status == "stopped" && health == "healthy" {
 			health = ""
+		}
+		if status == "stopped" {
+			portListening = nil
 		}
 
 		// repo-onlyサービス判定: repoあり + commandなし
 		isRepoOnly := svc.Repo != "" && svc.Command == ""
 
 		result.Services = append(result.Services, ServiceInfo{
-			Name:         name,
-			Type:         svc.Type,
-			Port:         resolvedPort,
-			Status:       status,
-			Health:       health,
-			PID:          pid,
-			RestartCount: state.RestartCount,
-			IsRepoOnly:   isRepoOnly,
-			IsShared:     svc.Shared,
+			Name:          name,
+			Type:          svc.Type,
+			Port:          resolvedPort,
+			Status:        status,
+			Health:        health,
+			PID:           pid,
+			RestartCount:  state.RestartCount,
+			PortListening: portListening,
+			IsRepoOnly:    isRepoOnly,
+			IsShared:      svc.Shared,
 		})
 	}
 

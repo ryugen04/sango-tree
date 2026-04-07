@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -137,56 +136,37 @@ func runWorktreeCreate(cfg *config.Config, branch string) error {
 		allServiceNames = append(allServiceNames, name)
 	}
 
-	// include展開
-	if len(cfg.Worktree.Include.Root) > 0 || len(cfg.Worktree.Include.PerService) > 0 {
-		fmt.Println("[sango] includeファイルを展開中...")
-		vars := worktree.BuildIncludeVars(cfg, offset, allServiceNames)
-		// sourceはプロジェクトルート（cwd）基準、targetはworktreeDir基準
-		projectRoot, _ := os.Getwd()
-		result := worktree.ExpandIncludes(projectRoot, cfg.Worktree.WorktreeDir(branch), allServiceNames, cfg.Worktree.Include, vars, sangoDir)
-		if result.HasErrors() {
-			// ロールバック実行
-			for _, e := range created {
-				fmt.Printf("[sango] ロールバック: %s を削除中...\n", e.serviceName)
-				if rbErr := worktree.WorktreeRemove(sangoDir, e.serviceName, e.path, true); rbErr != nil {
-					fmt.Printf("[sango] ロールバック警告: %s の削除に失敗: %v\n", e.serviceName, rbErr)
-				}
+	// 後処理を実行（include展開、setup、hooks）
+	fmt.Println("[sango] 後処理を実行中...")
+	ppResult := worktree.RunPostProcess(cfg, sangoDir, branch, allServiceNames, offset, worktree.PostProcessOptions{
+		SkipSetup: wtCreateNoSetup,
+	})
+
+	// include展開エラーの処理
+	if ppResult.IncludeResult != nil && ppResult.IncludeResult.HasErrors() {
+		// ロールバック実行
+		for _, e := range created {
+			fmt.Printf("[sango] ロールバック: %s を削除中...\n", e.serviceName)
+			if rbErr := worktree.WorktreeRemove(sangoDir, e.serviceName, e.path, true); rbErr != nil {
+				fmt.Printf("[sango] ロールバック警告: %s の削除に失敗: %v\n", e.serviceName, rbErr)
 			}
-			return fmt.Errorf("必須includeエントリの展開に失敗: %w", result.CriticalError())
 		}
-		if warning := result.WarningError(); warning != nil {
+		return fmt.Errorf("必須includeエントリの展開に失敗: %w", ppResult.IncludeResult.CriticalError())
+	}
+	if ppResult.IncludeResult != nil {
+		if warning := ppResult.IncludeResult.WarningError(); warning != nil {
 			fmt.Printf("[sango] include展開で警告: %v\n", warning)
 		}
 	}
 
-	// auto_setupの実行
-	if cfg.Worktree.AutoSetup && !wtCreateNoSetup {
-		for _, name := range allServiceNames {
-			svc := cfg.Services[name]
-			if len(svc.Setup) > 0 {
-				fmt.Printf("[sango] %s のセットアップを実行中...\n", name)
-				// repo_nameが設定されている場合、参照先のディレクトリを使う
-				dirName := name
-				if svc.RepoName != "" {
-					dirName = svc.RepoName
-				}
-				for _, setupCmd := range svc.Setup {
-					c := exec.Command("sh", "-c", setupCmd)
-					c.Dir = filepath.Join(cfg.Worktree.WorktreeDir(branch), dirName)
-					if out, err := c.CombinedOutput(); err != nil {
-						fmt.Printf("[sango] %s のセットアップ警告: %v\n%s", name, err, out)
-					}
-				}
-			}
-		}
+	// setupエラーの警告
+	for _, e := range ppResult.SetupErrors {
+		fmt.Printf("[sango] セットアップ警告: %v\n", e)
 	}
 
-	// post_createフック実行
-	if len(cfg.Worktree.Hooks.PostCreate) > 0 {
-		fmt.Println("[sango] post_createフックを実行中...")
-		if err := worktree.RunHooks(cfg.Worktree.Hooks.PostCreate, cfg.Worktree.WorktreeDir(branch), allServiceNames); err != nil {
-			fmt.Printf("[sango] post_createフック警告: %v\n", err)
-		}
+	// hooksエラーの警告
+	for _, e := range ppResult.HookErrors {
+		fmt.Printf("[sango] フック警告: %v\n", e)
 	}
 
 	// worktrees.json更新

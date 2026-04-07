@@ -8,8 +8,11 @@ import (
 
 // ServiceState はサービスの実行状態を保持する
 type ServiceState struct {
-	RestartCount int    `json:"restart_count"`
-	HealthStatus string `json:"health_status"` // "healthy" | "unhealthy" | ""
+	RestartCount  int    `json:"restart_count"`
+	HealthStatus  string `json:"health_status"` // "healthy" | "unhealthy" | ""
+	PortListening *bool  `json:"port_listening,omitempty"`
+	ProcessAlive  *bool  `json:"process_alive,omitempty"`
+	VerifiedAt    string `json:"verified_at,omitempty"`
 }
 
 // statePath はステートファイルのパスを返す

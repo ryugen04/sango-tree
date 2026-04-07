@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
+	"github.com/ryugen04/sango-tree/internal/port"
 	"github.com/ryugen04/sango-tree/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -56,9 +57,10 @@ var statusCmd = &cobra.Command{
 				if svc.Port > 0 {
 					portStr = strconv.Itoa(svc.Port)
 				}
-				rows = append(rows, []string{svc.Name, portStr, renderStatus(svc.Status, green, gray, yellow)})
+				listenStr := renderListen(svc.Port, svc.Status, green, gray, yellow)
+				rows = append(rows, []string{svc.Name, portStr, listenStr, renderStatus(svc.Status, green, gray, yellow)})
 			}
-			fmt.Println(renderTable([]string{"SERVICE", "PORT", "STATUS"}, rows, headerStyle, cellStyle, dim))
+			fmt.Println(renderTable([]string{"SERVICE", "PORT", "LISTEN", "STATUS"}, rows, headerStyle, cellStyle, dim))
 			fmt.Println()
 		}
 
@@ -113,15 +115,17 @@ var statusCmd = &cobra.Command{
 				if svc.PID > 0 {
 					pidStr = strconv.Itoa(svc.PID)
 				}
+				listenStr := renderListen(svc.Port, svc.Status, green, gray, yellow)
 				rows = append(rows, []string{
 					svc.Name,
 					portStr,
+					listenStr,
 					renderStatus(svc.Status, green, gray, yellow),
 					healthStr,
 					pidStr,
 				})
 			}
-			fmt.Println(renderTable([]string{"SERVICE", "PORT", "STATUS", "HEALTH", "PID"}, rows, headerStyle, cellStyle, dim))
+			fmt.Println(renderTable([]string{"SERVICE", "PORT", "LISTEN", "STATUS", "HEALTH", "PID"}, rows, headerStyle, cellStyle, dim))
 			fmt.Println()
 		}
 
@@ -161,6 +165,23 @@ func renderTable(headers []string, rows [][]string, headerStyle, cellStyle lipgl
 		Rows(rows...)
 
 	return t.String()
+}
+
+func renderListen(portNumber int, status string, green, gray, yellow lipgloss.Style) string {
+	if portNumber <= 0 {
+		return gray.Render("-")
+	}
+
+	holderPID, err := port.GetPortHolder(portNumber)
+	if err == nil && holderPID > 0 {
+		return green.Render("yes")
+	}
+
+	if status == "running" {
+		return yellow.Render("no")
+	}
+
+	return gray.Render("no")
 }
 
 func init() {

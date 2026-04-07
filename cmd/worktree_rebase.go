@@ -2,10 +2,15 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
+	"os"
 
 	"github.com/ryugen04/sango-tree/internal/worktree"
 	"github.com/spf13/cobra"
+)
+
+var (
+	wtRebaseNoSetup bool
+	wtRebaseNoHooks bool
 )
 
 var worktreeRebaseCmd = &cobra.Command{
@@ -50,97 +55,45 @@ var worktreeRebaseCmd = &cobra.Command{
 			}
 		}
 
-		fmt.Printf("[sango] Rebasing worktree %s...\n", wtName)
+		fmt.Fprintf(os.Stderr, "[sango] Rebasing worktree %s...\n", wtName)
 
-		var hasError bool
-		for _, svcName := range wtInfo.Services {
-			svc, ok := cfg.Services[svcName]
-			if !ok {
-				continue
-			}
-			// dockerサービスやリポジトリなしのサービスはスキップ
-			if svc.Type == "docker" || svc.Repo == "" {
-				continue
-			}
+		// rebaseを実行
+		rebaseResult := worktree.RebaseServices(cfg, sangoDir, wtName, wtInfo, baseBranch)
 
-			// リポジトリ名を解決
-			repoName := svcName
-			if svc.RepoName != "" {
-				repoName = svc.RepoName
-			}
+		for _, name := range rebaseResult.Rebased {
+			fmt.Fprintf(os.Stderr, "  rebase完了: %s\n", name)
+		}
+		for _, name := range rebaseResult.Failed {
+			fmt.Fprintf(os.Stderr, "  rebase失敗: %s\n", name)
+		}
 
-			// ベアリポジトリでfetch
-			bareDir := worktree.BareRepoDir(sangoDir, svcName)
-			fmt.Printf("[sango] Fetching latest changes for %s...\n", repoName)
-			if err := worktree.FetchOrigin(bareDir); err != nil {
-				fmt.Printf("[sango]   ✗ %s: fetch failed: %v\n", repoName, err)
-				hasError = true
-				continue
-			}
+		// rebase成功後に後処理を実行
+		if !rebaseResult.HasError {
+			fmt.Fprintf(os.Stderr, "[sango] 後処理を実行...\n")
+			ppResult := worktree.RunPostProcess(cfg, sangoDir, wtName, wtInfo.Services, wtInfo.Offset, worktree.PostProcessOptions{
+				SkipSetup: wtRebaseNoSetup,
+				SkipHooks: wtRebaseNoHooks,
+			})
 
-			// worktreeディレクトリを特定
-			wtDir := filepath.Join(cfg.Worktree.WorktreeDir(wtName), svcName)
-			absWtDir, err := filepath.Abs(wtDir)
-			if err != nil {
-				fmt.Printf("[sango]   ✗ %s: パス解決に失敗: %v\n", repoName, err)
-				hasError = true
-				continue
-			}
-
-			fmt.Printf("[sango] Rebasing %s onto %s...\n", repoName, baseBranch)
-
-			// 未コミット変更の確認
-			hasChanges, err := worktree.HasUncommittedChanges(absWtDir)
-			if err != nil {
-				fmt.Printf("[sango]   ✗ %s: 状態確認に失敗: %v\n", repoName, err)
-				hasError = true
-				continue
-			}
-
-			// stash
-			if hasChanges {
-				if err := worktree.GitStash(absWtDir); err != nil {
-					fmt.Printf("[sango]   ✗ %s: stashに失敗: %v\n", repoName, err)
-					hasError = true
-					continue
+			if ppResult.IncludeResult != nil {
+				for _, w := range ppResult.IncludeResult.Warnings {
+					fmt.Fprintf(os.Stderr, "  include警告: %s\n", w)
 				}
 			}
-
-			// rebase
-			if err := worktree.GitRebase(absWtDir, baseBranch); err != nil {
-				fmt.Printf("[sango]   ✗ %s: rebase conflict detected, aborted\n", repoName)
-				fmt.Printf("[sango]     Run manually: cd %s && git rebase origin/%s\n", absWtDir, baseBranch)
-				worktree.GitRebaseAbort(absWtDir)
-				// stashがあった場合はpopして復元
-				if hasChanges {
-					worktree.GitStashPop(absWtDir)
-				}
-				hasError = true
-				continue
-			}
-
-			// stash pop
-			if hasChanges {
-				if err := worktree.GitStashPop(absWtDir); err != nil {
-					fmt.Printf("[sango]   ✗ %s: stash popに失敗: %v\n", repoName, err)
-					hasError = true
-					continue
-				}
-				fmt.Printf("[sango]   ✓ %s: rebased (stashed changes restored)\n", repoName)
-			} else {
-				fmt.Printf("[sango]   ✓ %s: rebased (no local changes)\n", repoName)
+			for _, e := range ppResult.SetupErrors {
+				fmt.Fprintf(os.Stderr, "  setup失敗: %v\n", e)
 			}
 		}
 
-		if hasError {
-			fmt.Println("[sango] Done (with errors).")
-		} else {
-			fmt.Println("[sango] Done.")
+		if rebaseResult.HasError {
+			return fmt.Errorf("一部のサービスでrebaseが失敗しました")
 		}
 		return nil
 	},
 }
 
 func init() {
+	worktreeRebaseCmd.Flags().BoolVar(&wtRebaseNoSetup, "no-setup", false, "セットアップをスキップする")
+	worktreeRebaseCmd.Flags().BoolVar(&wtRebaseNoHooks, "no-hooks", false, "フックをスキップする")
 	worktreeCmd.AddCommand(worktreeRebaseCmd)
 }
